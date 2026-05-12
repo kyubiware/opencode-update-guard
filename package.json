@@ -23,5 +23,23 @@
     "dist",
     "bin"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "author": "kyubiware",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kyubiware/opencode-update-guard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kyubiware/opencode-update-guard/issues"
+  },
+  "homepage": "https://github.com/kyubiware/opencode-update-guard#readme",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "supply-chain",
+    "security",
+    "update",
+    "npm",
+    "maturity"
+  ]
 }
