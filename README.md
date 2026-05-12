@@ -29,10 +29,10 @@ Checks run **once per 24 hours** (cached in `.cache/update-guard-last-check`).
 ## Install
 
 ```bash
-npm install opencode-update-guard
+npm install -g opencode-update-guard
 ```
 
-The postinstall script automatically registers the plugin in your `opencode.json`.
+The postinstall script automatically registers the plugin in your global `opencode.json` (`~/.config/opencode/opencode.json`).
 
 ## Manual setup
 
