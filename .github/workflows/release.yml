@@ -34,7 +34,7 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6c2f04497 # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
