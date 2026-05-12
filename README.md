@@ -1,0 +1,1 @@
+# opencode-update-guard
