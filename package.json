@@ -8,15 +8,28 @@
     "build": "tsc",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build",
-    "postinstall": "node bin/install.cjs"
+    "postinstall": "node bin/install.cjs",
+    "lint": "biome check",
+    "lint:fix": "biome check --fix",
+    "format": "biome format",
+    "format:fix": "biome format --write",
+    "prepare": "simple-git-hooks"
   },
-  "dependencies": {},
+  "lint-staged": {
+    "*.{ts,js,cjs,mjs}": "biome check --fix --no-errors-on-unmatched"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npx lint-staged"
+  },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.4.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.15",
     "@opencode-ai/plugin": "^1.4.9",
     "@types/node": "22",
+    "lint-staged": "^17.0.4",
+    "simple-git-hooks": "^2.13.1",
     "typescript": "^5.7.0"
   },
   "files": [
