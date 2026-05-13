@@ -214,9 +214,15 @@ function buildUpdateReport(updates: UpdateInfo[]): string {
 
 // ── Cooldown (check once per day) ──────────────────────────────
 
-function shouldCheck(directory: string): boolean {
+function getCacheDir(): string {
+  const xdg = process.env.XDG_CACHE_HOME;
+  const base = xdg || path.join(os.homedir(), ".cache");
+  return path.join(base, "opencode");
+}
+
+function shouldCheck(): boolean {
   try {
-    const cachePath = path.join(directory, ".cache", COOLDOWN_FILE);
+    const cachePath = path.join(getCacheDir(), COOLDOWN_FILE);
     if (!fs.existsSync(cachePath)) return true;
     const lastCheck = parseInt(fs.readFileSync(cachePath, "utf-8").trim(), 10);
     const hoursSince = (Date.now() - lastCheck) / 3600000;
@@ -226,9 +232,9 @@ function shouldCheck(directory: string): boolean {
   }
 }
 
-function markChecked(directory: string): void {
+function markChecked(): void {
   try {
-    const cacheDir = path.join(directory, ".cache");
+    const cacheDir = getCacheDir();
     if (!fs.existsSync(cacheDir)) {
       fs.mkdirSync(cacheDir, { recursive: true });
     }
@@ -248,10 +254,10 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
       if (event.type !== "session.created") return;
 
       // Only check once per day
-      if (!shouldCheck(directory)) return;
+      if (!shouldCheck()) return;
 
       const updates = checkForUpdates(directory);
-      markChecked(directory);
+      markChecked();
 
       if (updates.length === 0) return;
 
