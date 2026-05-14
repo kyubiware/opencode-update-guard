@@ -10,12 +10,18 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Hooks, Plugin, PluginOptions } from "@opencode-ai/plugin";
+import type { Part } from "@opencode-ai/sdk";
 
 // ── Configuration ──────────────────────────────────────────────
 
-const MATURITY_DAYS = 3;
-const MATURITY_SECS = MATURITY_DAYS * 86400;
+const DEFAULT_MATURITY_DAYS = 3;
 const COOLDOWN_FILE = "update-guard-last-check";
+const CONFIG_FILENAME = "update-guard.jsonc";
+
+let maturityDays = DEFAULT_MATURITY_DAYS;
+let maturitySecs = maturityDays * 86400;
+
+const blockedPackages = new Map<string, UpdateInfo>();
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -65,7 +71,7 @@ function formatAge(seconds: number): string {
 }
 
 function isMature(ageSeconds: number): boolean {
-	return ageSeconds >= MATURITY_SECS;
+	return ageSeconds >= maturitySecs;
 }
 
 function parseJsonc(content: string): unknown {
@@ -132,6 +138,49 @@ function readJsonc(filePath: string): Record<string, unknown> | null {
 
 function _writeJson(filePath: string, data: Record<string, unknown>): void {
 	fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`);
+}
+
+function getConfigDir(): string {
+	const xdg = process.env.XDG_CONFIG_HOME;
+	const base = xdg || path.join(os.homedir(), ".config");
+	return path.join(base, "opencode");
+}
+
+function loadConfig(): void {
+	const configPath = path.join(getConfigDir(), CONFIG_FILENAME);
+	const raw = readJsonc(configPath);
+
+	const value = raw?.maturityDays;
+	if (typeof value === "number" && value >= 0 && Number.isFinite(value)) {
+		maturityDays = value;
+	} else {
+		maturityDays = DEFAULT_MATURITY_DAYS;
+	}
+	maturitySecs = maturityDays * 86400;
+}
+
+function ensureConfigFile(): void {
+	try {
+		const configDir = getConfigDir();
+		const configPath = path.join(configDir, CONFIG_FILENAME);
+
+		if (fs.existsSync(configPath)) return;
+
+		if (!fs.existsSync(configDir)) {
+			fs.mkdirSync(configDir, { recursive: true });
+		}
+
+		const content = `{
+  // Minimum age (in days) a package version must be before it's considered
+  // "mature" enough to install. This cooldown helps protect against supply
+  // chain attacks on newly published packages.
+  "maturityDays": ${DEFAULT_MATURITY_DAYS}
+}
+`;
+		fs.writeFileSync(configPath, content);
+	} catch {
+		// non-critical — will use defaults
+	}
 }
 
 // ── Update Check ───────────────────────────────────────────────
@@ -204,13 +253,13 @@ function checkForUpdates(directory: string): UpdateInfo[] {
 
 function buildUpdateReport(updates: UpdateInfo[]): string {
 	const lines: string[] = [];
-	const mature = updates.filter((u) => u.ageSeconds >= MATURITY_SECS);
+	const mature = updates.filter((u) => u.ageSeconds >= maturitySecs);
 	const waiting = updates.filter(
-		(u) => u.ageSeconds >= 0 && u.ageSeconds < MATURITY_SECS,
+		(u) => u.ageSeconds >= 0 && u.ageSeconds < maturitySecs,
 	);
 	const unknown = updates.filter((u) => u.ageSeconds < 0);
 
-	lines.push(`**Update Guard** — ${MATURITY_DAYS}-day maturity cooldown`);
+	lines.push(`**Update Guard** — ${maturityDays}-day maturity cooldown`);
 	lines.push("");
 
 	if (mature.length > 0) {
@@ -226,7 +275,7 @@ function buildUpdateReport(updates: UpdateInfo[]): string {
 	if (waiting.length > 0) {
 		lines.push("**Waiting for maturity:**");
 		for (const u of waiting) {
-			const remaining = formatAge(MATURITY_SECS - u.ageSeconds);
+			const remaining = formatAge(maturitySecs - u.ageSeconds);
 			lines.push(
 				`  - \`${u.name}\` ${u.current} → ${u.latest} (${formatAge(u.ageSeconds)} old, ${remaining} remaining)`,
 			);
@@ -282,8 +331,33 @@ function markChecked(): void {
 const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 	const { directory } = input;
 
+	ensureConfigFile();
+	loadConfig();
+
 	const hooks: Hooks = {
 		event: async ({ event }) => {
+			if (event.type === "installation.update-available") {
+				const props = event.properties;
+				const version = props.version as string | undefined;
+				if (version) {
+					const pubEpoch = getPublishedEpoch("opencode-ai", version);
+					const nowEpoch = Math.floor(Date.now() / 1000);
+					const ageSeconds = pubEpoch ? nowEpoch - pubEpoch : -1;
+					if (ageSeconds >= 0 && !isMature(ageSeconds)) {
+						blockedPackages.set("opencode", {
+							type: "cli",
+							name: "opencode",
+							current: "",
+							latest: version,
+							ageSeconds,
+						});
+						console.log(
+							`\n⚠️ Update Guard: opencode ${version} published ${formatAge(ageSeconds)} ago — blocked until mature (${formatAge(maturitySecs - ageSeconds)} remaining).\n`,
+						);
+					}
+				}
+			}
+
 			if (event.type !== "session.created") return;
 
 			// Only check once per day
@@ -304,6 +378,86 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 					`Run \`bun run update\` in ${directory} to install mature updates.\n`,
 				);
 			}
+
+			// Populate blocked packages from the updates found
+			const waiting = updates.filter(
+				(u) => u.ageSeconds >= 0 && !isMature(u.ageSeconds),
+			);
+			for (const u of waiting) {
+				blockedPackages.set(u.name, u);
+			}
+			// Clean up packages that are now mature
+			for (const [name, info] of blockedPackages) {
+				if (isMature(info.ageSeconds)) {
+					blockedPackages.delete(name);
+				}
+			}
+		},
+
+		"permission.ask": async (input, output) => {
+			const title = (input.title || "").toLowerCase();
+			const pattern = input.pattern;
+			const patterns = Array.isArray(pattern)
+				? pattern
+				: pattern
+					? [pattern]
+					: [];
+			const allText = [title, ...patterns].join(" ").toLowerCase();
+
+			for (const [name, info] of blockedPackages) {
+				if (allText.includes(name.toLowerCase())) {
+					output.status = "deny";
+					console.log(
+						`\n🛡️ Update Guard: Blocked update to ${name} ${info.latest} — ${formatAge(info.ageSeconds)} old, needs ${formatAge(maturitySecs - info.ageSeconds)} more to mature.\n`,
+					);
+					return;
+				}
+			}
+		},
+
+		"command.execute.before": async (input, output) => {
+			const cmd = (input.command || "").toLowerCase();
+			const args = (input.arguments || "").toLowerCase();
+			const full = `${cmd} ${args}`;
+
+			const updatePatterns = [
+				/\bnpm\s+(install|i|update|upgrade)\b/,
+				/\bbun\s+(install|i|update|upgrade|add)\b/,
+				/\byarn\s+(install|add|upgrade)\b/,
+				/\bpnpm\s+(install|i|add|update|upgrade)\b/,
+			];
+
+			const isUpdate = updatePatterns.some((p) => p.test(full));
+			if (!isUpdate) return;
+
+			for (const [name, info] of blockedPackages) {
+				if (full.includes(name.toLowerCase())) {
+					const warning = `⚠️ Update Guard: ${name} ${info.latest} is only ${formatAge(info.ageSeconds)} old (needs ${formatAge(maturitySecs - info.ageSeconds)} more to mature). This update is BLOCKED.`;
+					(output.parts as unknown[]).push({
+						type: "text",
+						text: warning,
+					} as unknown as Part);
+					return;
+				}
+			}
+		},
+
+		"experimental.chat.system.transform": async (_input, output) => {
+			if (blockedPackages.size === 0) return;
+
+			const lines = [
+				"[Update Guard] The following packages have IMMATURE updates that MUST NOT be installed:",
+			];
+			for (const [name, info] of blockedPackages) {
+				lines.push(
+					`- ${name}: ${info.latest} (published ${formatAge(info.ageSeconds)} ago, needs ${formatAge(maturitySecs - info.ageSeconds)} more)`,
+				);
+			}
+			lines.push(
+				"Do NOT suggest, run, or assist with installing these versions until they mature.",
+			);
+
+			output.system.push(lines.join("\n"));
 		},
 	};
 
