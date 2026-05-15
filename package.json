@@ -15,9 +15,6 @@
     "format:fix": "biome format --write",
     "prepare": "simple-git-hooks"
   },
-  "lint-staged": {
-    "*.{ts,js,cjs,mjs}": "biome check --fix --no-errors-on-unmatched"
-  },
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged"
   },

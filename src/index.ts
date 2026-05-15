@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Hooks, Plugin, PluginOptions } from "@opencode-ai/plugin";
-import type { Part } from "@opencode-ai/sdk";
+import type { OpencodeClient, Part } from "@opencode-ai/sdk";
 
 // ── Configuration ──────────────────────────────────────────────
 
@@ -22,6 +22,8 @@ let maturityDays = DEFAULT_MATURITY_DAYS;
 let maturitySecs = maturityDays * 86400;
 
 const blockedPackages = new Map<string, UpdateInfo>();
+let client: OpencodeClient;
+let lastReport = "";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -72,6 +74,17 @@ function formatAge(seconds: number): string {
 
 function isMature(ageSeconds: number): boolean {
 	return ageSeconds >= maturitySecs;
+}
+
+function showToast(options: {
+	title?: string;
+	message: string;
+	variant: "info" | "success" | "warning" | "error";
+	duration?: number;
+}): void {
+	client?.tui.showToast({ body: options }).catch(() => {
+		/* TUI may not be ready */
+	});
 }
 
 function parseJsonc(content: string): unknown {
@@ -329,7 +342,8 @@ function markChecked(): void {
 // ── Plugin Entry Point ─────────────────────────────────────────
 
 const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
-	const { directory } = input;
+	const { client: inputClient, directory } = input;
+	client = inputClient;
 
 	ensureConfigFile();
 	loadConfig();
@@ -351,9 +365,12 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 							latest: version,
 							ageSeconds,
 						});
-						console.log(
-							`\n⚠️ Update Guard: opencode ${version} published ${formatAge(ageSeconds)} ago — blocked until mature (${formatAge(maturitySecs - ageSeconds)} remaining).\n`,
-						);
+						showToast({
+							title: "Update Guard",
+							message: `opencode ${version} published ${formatAge(ageSeconds)} ago — blocked until mature (${formatAge(maturitySecs - ageSeconds)} remaining).`,
+							variant: "warning",
+							duration: 8000,
+						});
 					}
 				}
 			}
@@ -368,15 +385,30 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 
 			if (updates.length === 0) return;
 
-			// Log the report — user can run `bun run update` to install
+			// Build and store the report for system transform
 			const report = buildUpdateReport(updates);
-			console.log(`\n${report}`);
+			lastReport = report;
 
 			const mature = updates.filter((u) => isMature(u.ageSeconds));
 			if (mature.length > 0) {
-				console.log(
-					`Run \`bun run update\` in ${directory} to install mature updates.\n`,
+				showToast({
+					title: "Update Guard",
+					message: `${mature.length} update(s) ready to install out of ${updates.length} available. Run \`bun run update\` in ${directory} to install.`,
+					variant: "info",
+					duration: 10000,
+				});
+			} else {
+				const waiting = updates.filter(
+					(u) => u.ageSeconds >= 0 && u.ageSeconds < maturitySecs,
 				);
+				if (waiting.length > 0) {
+					showToast({
+						title: "Update Guard",
+						message: `${waiting.length} update(s) waiting for ${maturityDays}-day maturity cooldown.`,
+						variant: "info",
+						duration: 6000,
+					});
+				}
 			}
 
 			// Populate blocked packages from the updates found
@@ -407,9 +439,12 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 			for (const [name, info] of blockedPackages) {
 				if (allText.includes(name.toLowerCase())) {
 					output.status = "deny";
-					console.log(
-						`\n🛡️ Update Guard: Blocked update to ${name} ${info.latest} — ${formatAge(info.ageSeconds)} old, needs ${formatAge(maturitySecs - info.ageSeconds)} more to mature.\n`,
-					);
+					showToast({
+						title: "Update Guard",
+						message: `Blocked update to ${name} ${info.latest} — ${formatAge(info.ageSeconds)} old, needs ${formatAge(maturitySecs - info.ageSeconds)} more to mature.`,
+						variant: "warning",
+						duration: 8000,
+					});
 					return;
 				}
 			}
@@ -443,19 +478,29 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 		},
 
 		"experimental.chat.system.transform": async (_input, output) => {
-			if (blockedPackages.size === 0) return;
+			if (blockedPackages.size === 0 && !lastReport) return;
 
-			const lines = [
-				"[Update Guard] The following packages have IMMATURE updates that MUST NOT be installed:",
-			];
-			for (const [name, info] of blockedPackages) {
+			const lines: string[] = [];
+
+			if (lastReport) {
+				lines.push("[Update Guard] Update status:");
+				lines.push(lastReport);
+				lines.push("");
+			}
+
+			if (blockedPackages.size > 0) {
 				lines.push(
-					`- ${name}: ${info.latest} (published ${formatAge(info.ageSeconds)} ago, needs ${formatAge(maturitySecs - info.ageSeconds)} more)`,
+					"[Update Guard] The following packages have IMMATURE updates that MUST NOT be installed:",
+				);
+				for (const [name, info] of blockedPackages) {
+					lines.push(
+						`- ${name}: ${info.latest} (published ${formatAge(info.ageSeconds)} ago, needs ${formatAge(maturitySecs - info.ageSeconds)} more)`,
+					);
+				}
+				lines.push(
+					"Do NOT suggest, run, or assist with installing these versions until they mature.",
 				);
 			}
-			lines.push(
-				"Do NOT suggest, run, or assist with installing these versions until they mature.",
-			);
 
 			output.system.push(lines.join("\n"));
 		},
