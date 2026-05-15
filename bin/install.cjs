@@ -13,6 +13,10 @@ const os = require("node:os");
 const CONFIG_DIR =
 	process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config", "opencode");
 const PLUGIN_NAME = "opencode-update-guard";
+const PLUGIN_VERSION = JSON.parse(
+	fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
+).version;
+const PLUGIN_ID = `${PLUGIN_NAME}@${PLUGIN_VERSION}`;
 
 function findConfigFile() {
 	for (const name of ["opencode.json", "opencode.jsonc"]) {
@@ -102,23 +106,27 @@ function register(configPath) {
 		config = {};
 	}
 
-	if (isRegistered(config)) {
-		console.log(
-			"  \u2299 " +
-				PLUGIN_NAME +
-				" already registered in " +
-				path.basename(configPath),
-		);
-		return;
+	if (!config.plugin) config.plugin = [];
+
+	const existingIdx = config.plugin.findIndex(
+		(p) => typeof p === "string" && p.startsWith(PLUGIN_NAME),
+	);
+
+	if (existingIdx !== -1) {
+		if (config.plugin[existingIdx] === PLUGIN_ID) {
+			console.log(
+				`  ⊙ ${PLUGIN_ID} already registered in ${path.basename(configPath)}`,
+			);
+			return;
+		}
+		config.plugin[existingIdx] = PLUGIN_ID;
+		console.log(`  ↑ Updated to ${PLUGIN_ID} in ${path.basename(configPath)}`);
+	} else {
+		config.plugin.push(PLUGIN_ID);
+		console.log(`  ✓ Registered ${PLUGIN_ID} in ${path.basename(configPath)}`);
 	}
 
-	if (!config.plugin) config.plugin = [];
-	config.plugin.push(PLUGIN_NAME);
-
 	fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-	console.log(
-		`  \u2713 Registered ${PLUGIN_NAME} in ${path.basename(configPath)}`,
-	);
 }
 
 function unregister(configPath) {
