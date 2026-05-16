@@ -15,6 +15,7 @@ import {
 	loadConfig,
 } from "./config.js";
 import { markChecked, shouldCheck } from "./cooldown.js";
+import { debugLog } from "./debug.js";
 import { formatAge } from "./helpers.js";
 import { buildUpdateReport } from "./report.js";
 import type { UpdateInfo } from "./types.js";
@@ -47,15 +48,29 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 
 	ensureConfigFile();
 	loadConfig();
+	debugLog("plugin loaded, directory:", directory);
 
 	const hooks: Hooks = {
 		event: async ({ event }) => {
+			debugLog("event received:", event.type);
 			if (event.type !== "session.created") return;
 
 			// Only check once per day
-			if (!shouldCheck()) return;
+			const should = shouldCheck();
+			debugLog("shouldCheck:", should);
+			if (!should) return;
 
+			debugLog("checking for updates, directory:", directory);
 			const updates = checkForUpdates(directory);
+			debugLog(
+				"updates found:",
+				updates.length,
+				JSON.stringify(
+					updates.map(
+						(u) => `${u.name} ${u.current}->${u.latest} age=${u.ageSeconds}s`,
+					),
+				),
+			);
 			markChecked();
 
 			if (updates.length === 0) return;
@@ -65,7 +80,9 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 			lastReport = report;
 
 			const mature = updates.filter((u) => isMature(u.ageSeconds));
+			debugLog("mature updates:", mature.length);
 			if (mature.length > 0) {
+				debugLog("showing mature toast:", mature.length, "of", updates.length);
 				showToast({
 					title: "Update Guard",
 					message: `${mature.length} update(s) ready to install out of ${updates.length} available. Run \`bun run update\` in ${directory} to install.`,

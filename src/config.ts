@@ -10,6 +10,7 @@ const CONFIG_FILENAME = "update-guard.jsonc";
 
 let maturityDays = DEFAULT_MATURITY_DAYS;
 let maturitySecs = maturityDays * 86400;
+let debugEnabled = false;
 
 export function getMaturityDays(): number {
 	return maturityDays;
@@ -21,6 +22,10 @@ export function getMaturitySecs(): number {
 
 export function isMature(ageSeconds: number): boolean {
 	return ageSeconds >= maturitySecs;
+}
+
+export function isDebugEnabled(): boolean {
+	return debugEnabled;
 }
 
 export function getConfigDir(): string {
@@ -40,6 +45,13 @@ export function loadConfig(): void {
 		maturityDays = DEFAULT_MATURITY_DAYS;
 	}
 	maturitySecs = maturityDays * 86400;
+
+	const debugValue = raw?.debug;
+	if (typeof debugValue === "boolean") {
+		debugEnabled = debugValue;
+	} else {
+		debugEnabled = false;
+	}
 }
 
 export function ensureConfigFile(): void {
@@ -57,7 +69,11 @@ export function ensureConfigFile(): void {
   // Minimum age (in days) a package version must be before it's considered
   // "mature" enough to install. This cooldown helps protect against supply
   // chain attacks on newly published packages.
-  "maturityDays": ${DEFAULT_MATURITY_DAYS}
+  "maturityDays": ${DEFAULT_MATURITY_DAYS},
+
+  // Enable debug logging to diagnose plugin issues.
+  // Logs are written to $XDG_CACHE_HOME/opencode/update-guard-debug.log
+  "debug": false
 }
 `;
 		fs.writeFileSync(configPath, content);
