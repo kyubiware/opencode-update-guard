@@ -5,76 +5,28 @@
  * Notifies the user and prompts to install mature updates.
  */
 
-import { execSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import type { Hooks, Plugin, PluginOptions } from "@opencode-ai/plugin";
 import type { OpencodeClient, Part } from "@opencode-ai/sdk";
+import {
+	ensureConfigFile,
+	getMaturityDays,
+	getMaturitySecs,
+	isMature,
+	loadConfig,
+} from "./config.js";
+import { markChecked, shouldCheck } from "./cooldown.js";
+import { formatAge } from "./helpers.js";
+import { buildUpdateReport } from "./report.js";
+import type { UpdateInfo } from "./types.js";
+import { checkForUpdates } from "./update-check.js";
 
-// ── Configuration ──────────────────────────────────────────────
-
-const DEFAULT_MATURITY_DAYS = 3;
-const COOLDOWN_FILE = "update-guard-last-check";
-const CONFIG_FILENAME = "update-guard.jsonc";
-
-let maturityDays = DEFAULT_MATURITY_DAYS;
-let maturitySecs = maturityDays * 86400;
+// ── Plugin State ───────────────────────────────────────────────
 
 const blockedPackages = new Map<string, UpdateInfo>();
 let client: OpencodeClient;
 let lastReport = "";
 
-// ── Types ──────────────────────────────────────────────────────
-
-interface UpdateInfo {
-	type: "cli" | "pkg" | "plugin";
-	name: string;
-	current: string;
-	latest: string;
-	ageSeconds: number;
-}
-
-// ── Helpers ────────────────────────────────────────────────────
-
-function execQuiet(cmd: string): string {
-	try {
-		return execSync(cmd, {
-			encoding: "utf-8",
-			stdio: ["pipe", "pipe", "pipe"],
-		}).trim();
-	} catch {
-		return "";
-	}
-}
-
-function getLatestVersion(pkg: string): string | null {
-	const result = execQuiet(`npm view ${pkg} version`);
-	return result || null;
-}
-
-function getPublishedEpoch(pkg: string, version: string): number | null {
-	const result = execQuiet(`npm view ${pkg} time --json`);
-	if (!result) return null;
-	try {
-		const times = JSON.parse(result) as Record<string, string>;
-		const iso = times[version];
-		if (!iso) return null;
-		return Math.floor(new Date(iso).getTime() / 1000);
-	} catch {
-		return null;
-	}
-}
-
-function formatAge(seconds: number): string {
-	const days = Math.floor(seconds / 86400);
-	const hours = Math.floor((seconds % 86400) / 3600);
-	return days > 0 ? `${days}d ${hours}h` : `${hours}h`;
-}
-
-function isMature(ageSeconds: number): boolean {
-	return ageSeconds >= maturitySecs;
-}
+// ── Toast ──────────────────────────────────────────────────────
 
 function showToast(options: {
 	title?: string;
@@ -85,258 +37,6 @@ function showToast(options: {
 	client?.tui.showToast({ body: options }).catch(() => {
 		/* TUI may not be ready */
 	});
-}
-
-function parseJsonc(content: string): unknown {
-	let result = "";
-	let i = 0;
-	let inString = false;
-	let escaped = false;
-
-	while (i < content.length) {
-		const ch = content[i];
-		if (escaped) {
-			result += ch;
-			escaped = false;
-			i++;
-			continue;
-		}
-		if (ch === "\\") {
-			result += ch;
-			escaped = true;
-			i++;
-			continue;
-		}
-		if (ch === '"') {
-			inString = !inString;
-			result += ch;
-			i++;
-			continue;
-		}
-		if (inString) {
-			result += ch;
-			i++;
-			continue;
-		}
-		if (ch === "/" && content[i + 1] === "/") {
-			while (i < content.length && content[i] !== "\n") i++;
-			continue;
-		}
-		if (ch === "/" && content[i + 1] === "*") {
-			i += 2;
-			while (
-				i < content.length &&
-				!(content[i] === "*" && content[i + 1] === "/")
-			)
-				i++;
-			i += 2;
-			continue;
-		}
-		result += ch;
-		i++;
-	}
-
-	return JSON.parse(result);
-}
-
-function readJsonc(filePath: string): Record<string, unknown> | null {
-	try {
-		if (!fs.existsSync(filePath)) return null;
-		const content = fs.readFileSync(filePath, "utf-8");
-		return parseJsonc(content) as Record<string, unknown>;
-	} catch {
-		return null;
-	}
-}
-
-function _writeJson(filePath: string, data: Record<string, unknown>): void {
-	fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`);
-}
-
-function getConfigDir(): string {
-	const xdg = process.env.XDG_CONFIG_HOME;
-	const base = xdg || path.join(os.homedir(), ".config");
-	return path.join(base, "opencode");
-}
-
-function loadConfig(): void {
-	const configPath = path.join(getConfigDir(), CONFIG_FILENAME);
-	const raw = readJsonc(configPath);
-
-	const value = raw?.maturityDays;
-	if (typeof value === "number" && value >= 0 && Number.isFinite(value)) {
-		maturityDays = value;
-	} else {
-		maturityDays = DEFAULT_MATURITY_DAYS;
-	}
-	maturitySecs = maturityDays * 86400;
-}
-
-function ensureConfigFile(): void {
-	try {
-		const configDir = getConfigDir();
-		const configPath = path.join(configDir, CONFIG_FILENAME);
-
-		if (fs.existsSync(configPath)) return;
-
-		if (!fs.existsSync(configDir)) {
-			fs.mkdirSync(configDir, { recursive: true });
-		}
-
-		const content = `{
-  // Minimum age (in days) a package version must be before it's considered
-  // "mature" enough to install. This cooldown helps protect against supply
-  // chain attacks on newly published packages.
-  "maturityDays": ${DEFAULT_MATURITY_DAYS}
-}
-`;
-		fs.writeFileSync(configPath, content);
-	} catch {
-		// non-critical — will use defaults
-	}
-}
-
-// ── Update Check ───────────────────────────────────────────────
-
-function checkForUpdates(directory: string): UpdateInfo[] {
-	const updates: UpdateInfo[] = [];
-	const nowEpoch = Math.floor(Date.now() / 1000);
-
-	// 1. Check OpenCode CLI
-	const currentCli = execQuiet("opencode --version");
-	if (currentCli) {
-		const latestCli = getLatestVersion("opencode-ai");
-		if (latestCli && currentCli !== latestCli) {
-			const pubEpoch = getPublishedEpoch("opencode-ai", latestCli);
-			updates.push({
-				type: "cli",
-				name: "opencode",
-				current: currentCli,
-				latest: latestCli,
-				ageSeconds: pubEpoch ? nowEpoch - pubEpoch : -1,
-			});
-		}
-	}
-
-	// 2. Check package.json dependencies
-	const pkgConfig = readJsonc(path.join(directory, "package.json"));
-	const deps = (pkgConfig?.dependencies ?? {}) as Record<string, string>;
-	for (const [name, version] of Object.entries(deps)) {
-		const current = version.replace(/^[\^~>=<]+/, "");
-		const latest = getLatestVersion(name);
-		if (latest && current !== latest) {
-			const pubEpoch = getPublishedEpoch(name, latest);
-			updates.push({
-				type: "pkg",
-				name,
-				current,
-				latest,
-				ageSeconds: pubEpoch ? nowEpoch - pubEpoch : -1,
-			});
-		}
-	}
-
-	// 3. Check opencode.json plugins
-	let configPath = path.join(directory, "opencode.json");
-	if (!fs.existsSync(configPath)) {
-		configPath = path.join(directory, "opencode.jsonc");
-	}
-	const openCodeConfig = readJsonc(configPath);
-	const plugins = (openCodeConfig?.plugin ?? []) as string[];
-
-	for (const pluginRef of plugins) {
-		const match = pluginRef.match(/^(@?[^@]+)@(.+)$/);
-		if (!match) continue;
-		const [, name, current] = match;
-		const latest = getLatestVersion(name);
-		if (latest && current !== latest) {
-			const pubEpoch = getPublishedEpoch(name, latest);
-			updates.push({
-				type: "plugin",
-				name,
-				current,
-				latest,
-				ageSeconds: pubEpoch ? nowEpoch - pubEpoch : -1,
-			});
-		}
-	}
-
-	return updates;
-}
-
-function buildUpdateReport(updates: UpdateInfo[]): string {
-	const lines: string[] = [];
-	const mature = updates.filter((u) => u.ageSeconds >= maturitySecs);
-	const waiting = updates.filter(
-		(u) => u.ageSeconds >= 0 && u.ageSeconds < maturitySecs,
-	);
-	const unknown = updates.filter((u) => u.ageSeconds < 0);
-
-	lines.push(`**Update Guard** — ${maturityDays}-day maturity cooldown`);
-	lines.push("");
-
-	if (mature.length > 0) {
-		lines.push("**Ready to install:**");
-		for (const u of mature) {
-			lines.push(
-				`  - \`${u.name}\` ${u.current} → ${u.latest} (${formatAge(u.ageSeconds)} old)`,
-			);
-		}
-		lines.push("");
-	}
-
-	if (waiting.length > 0) {
-		lines.push("**Waiting for maturity:**");
-		for (const u of waiting) {
-			const remaining = formatAge(maturitySecs - u.ageSeconds);
-			lines.push(
-				`  - \`${u.name}\` ${u.current} → ${u.latest} (${formatAge(u.ageSeconds)} old, ${remaining} remaining)`,
-			);
-		}
-		lines.push("");
-	}
-
-	if (unknown.length > 0) {
-		lines.push("**Age unknown:**");
-		for (const u of unknown) {
-			lines.push(`  - \`${u.name}\` ${u.current} → ${u.latest}`);
-		}
-		lines.push("");
-	}
-
-	return lines.join("\n");
-}
-
-// ── Cooldown (check once per day) ──────────────────────────────
-
-function getCacheDir(): string {
-	const xdg = process.env.XDG_CACHE_HOME;
-	const base = xdg || path.join(os.homedir(), ".cache");
-	return path.join(base, "opencode");
-}
-
-function shouldCheck(): boolean {
-	try {
-		const cachePath = path.join(getCacheDir(), COOLDOWN_FILE);
-		if (!fs.existsSync(cachePath)) return true;
-		const lastCheck = parseInt(fs.readFileSync(cachePath, "utf-8").trim(), 10);
-		const hoursSince = (Date.now() - lastCheck) / 3600000;
-		return hoursSince >= 24;
-	} catch {
-		return true;
-	}
-}
-
-function markChecked(): void {
-	try {
-		const cacheDir = getCacheDir();
-		if (!fs.existsSync(cacheDir)) {
-			fs.mkdirSync(cacheDir, { recursive: true });
-		}
-		fs.writeFileSync(path.join(cacheDir, COOLDOWN_FILE), String(Date.now()));
-	} catch {
-		// non-critical
-	}
 }
 
 // ── Plugin Entry Point ─────────────────────────────────────────
@@ -374,12 +74,12 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 				});
 			} else {
 				const waiting = updates.filter(
-					(u) => u.ageSeconds >= 0 && u.ageSeconds < maturitySecs,
+					(u) => u.ageSeconds >= 0 && u.ageSeconds < getMaturitySecs(),
 				);
 				if (waiting.length > 0) {
 					showToast({
 						title: "Update Guard",
-						message: `${waiting.length} update(s) waiting for ${maturityDays}-day maturity cooldown.`,
+						message: `${waiting.length} update(s) waiting for ${getMaturityDays()}-day maturity cooldown.`,
 						variant: "info",
 						duration: 6000,
 					});
@@ -416,7 +116,7 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 					output.status = "deny";
 					showToast({
 						title: "Update Guard",
-						message: `Blocked update to ${name} ${info.latest} — ${formatAge(info.ageSeconds)} old, needs ${formatAge(maturitySecs - info.ageSeconds)} more to mature.`,
+						message: `Blocked update to ${name} ${info.latest} — ${formatAge(info.ageSeconds)} old, needs ${formatAge(getMaturitySecs() - info.ageSeconds)} more to mature.`,
 						variant: "warning",
 						duration: 8000,
 					});
@@ -442,7 +142,7 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 
 			for (const [name, info] of blockedPackages) {
 				if (full.includes(name.toLowerCase())) {
-					const warning = `⚠️ Update Guard: ${name} ${info.latest} is only ${formatAge(info.ageSeconds)} old (needs ${formatAge(maturitySecs - info.ageSeconds)} more to mature). This update is BLOCKED.`;
+					const warning = `⚠️ Update Guard: ${name} ${info.latest} is only ${formatAge(info.ageSeconds)} old (needs ${formatAge(getMaturitySecs() - info.ageSeconds)} more to mature). This update is BLOCKED.`;
 					(output.parts as unknown[]).push({
 						type: "text",
 						text: warning,
@@ -469,7 +169,7 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 				);
 				for (const [name, info] of blockedPackages) {
 					lines.push(
-						`- ${name}: ${info.latest} (published ${formatAge(info.ageSeconds)} ago, needs ${formatAge(maturitySecs - info.ageSeconds)} more)`,
+						`- ${name}: ${info.latest} (published ${formatAge(info.ageSeconds)} ago, needs ${formatAge(getMaturitySecs() - info.ageSeconds)} more)`,
 					);
 				}
 				lines.push(
