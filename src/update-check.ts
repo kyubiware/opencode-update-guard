@@ -1,29 +1,87 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import {
-	execQuiet,
-	getLatestVersion,
-	getPublishedEpoch,
-	readJsonc,
-} from "./helpers.js";
+import { getMaturitySecs } from "./config.js";
+import { execQuiet, getPublishedTimes, readJsonc } from "./helpers.js";
 import type { UpdateInfo } from "./types.js";
+
+function semverGt(a: string, b: string): boolean {
+	const aParts = a.split(".");
+	const bParts = b.split(".");
+	const len = Math.max(aParts.length, bParts.length);
+	for (let i = 0; i < len; i++) {
+		const aNum = Number(aParts[i] || 0);
+		const bNum = Number(bParts[i] || 0);
+		if (aNum > bNum) return true;
+		if (aNum < bNum) return false;
+	}
+	return false;
+}
+
+export function findBestUpdate(
+	pkg: string,
+	currentVersion: string,
+	nowEpoch: number,
+	maturitySecs: number,
+): { version: string; ageSeconds: number } | null {
+	const times = getPublishedTimes(pkg);
+	if (!times) return null;
+
+	const newerVersions = Object.entries(times).filter(([version]) =>
+		semverGt(version, currentVersion),
+	);
+
+	if (newerVersions.length === 0) return null;
+
+	let latestVersion = newerVersions[0][0];
+	let latestEpoch = newerVersions[0][1];
+
+	for (const [version, epoch] of newerVersions) {
+		if (semverGt(version, latestVersion)) {
+			latestVersion = version;
+			latestEpoch = epoch;
+		}
+	}
+
+	let matureVersion: string | null = null;
+	let matureEpoch: number | null = null;
+
+	for (const [version, epoch] of newerVersions) {
+		if (nowEpoch - epoch >= maturitySecs) {
+			if (!matureVersion || semverGt(version, matureVersion)) {
+				matureVersion = version;
+				matureEpoch = epoch;
+			}
+		}
+	}
+
+	if (matureVersion && matureEpoch !== null) {
+		return { version: matureVersion, ageSeconds: nowEpoch - matureEpoch };
+	}
+
+	return { version: latestVersion, ageSeconds: nowEpoch - latestEpoch };
+}
 
 export function checkForUpdates(directory: string): UpdateInfo[] {
 	const updates: UpdateInfo[] = [];
 	const nowEpoch = Math.floor(Date.now() / 1000);
+	const maturitySecs = getMaturitySecs();
 
 	// 1. Check OpenCode CLI
 	const currentCli = execQuiet("opencode --version");
 	if (currentCli) {
-		const latestCli = getLatestVersion("opencode-ai");
-		if (latestCli && currentCli !== latestCli) {
-			const pubEpoch = getPublishedEpoch("opencode-ai", latestCli);
+		const cliUpdate = findBestUpdate(
+			"opencode-ai",
+			currentCli,
+			nowEpoch,
+			maturitySecs,
+		);
+		if (cliUpdate) {
 			updates.push({
 				type: "cli",
 				name: "opencode",
 				current: currentCli,
-				latest: latestCli,
-				ageSeconds: pubEpoch ? nowEpoch - pubEpoch : -1,
+				latest: cliUpdate.version,
+				ageSeconds: cliUpdate.ageSeconds,
 			});
 		}
 	}
@@ -33,15 +91,14 @@ export function checkForUpdates(directory: string): UpdateInfo[] {
 	const deps = (pkgConfig?.dependencies ?? {}) as Record<string, string>;
 	for (const [name, version] of Object.entries(deps)) {
 		const current = version.replace(/^[\^~>=<]+/, "");
-		const latest = getLatestVersion(name);
-		if (latest && current !== latest) {
-			const pubEpoch = getPublishedEpoch(name, latest);
+		const pkgUpdate = findBestUpdate(name, current, nowEpoch, maturitySecs);
+		if (pkgUpdate) {
 			updates.push({
 				type: "pkg",
 				name,
 				current,
-				latest,
-				ageSeconds: pubEpoch ? nowEpoch - pubEpoch : -1,
+				latest: pkgUpdate.version,
+				ageSeconds: pkgUpdate.ageSeconds,
 			});
 		}
 	}
@@ -58,15 +115,14 @@ export function checkForUpdates(directory: string): UpdateInfo[] {
 		const match = pluginRef.match(/^(@?[^@]+)@(.+)$/);
 		if (!match) continue;
 		const [, name, current] = match;
-		const latest = getLatestVersion(name);
-		if (latest && current !== latest) {
-			const pubEpoch = getPublishedEpoch(name, latest);
+		const pluginUpdate = findBestUpdate(name, current, nowEpoch, maturitySecs);
+		if (pluginUpdate) {
 			updates.push({
 				type: "plugin",
 				name,
 				current,
-				latest,
-				ageSeconds: pubEpoch ? nowEpoch - pubEpoch : -1,
+				latest: pluginUpdate.version,
+				ageSeconds: pluginUpdate.ageSeconds,
 			});
 		}
 	}

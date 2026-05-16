@@ -1,75 +1,96 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-05-12
-**Commit:** f465c73
+**Generated:** 2026-05-16
+**Commit:** f2045bb
 **Branch:** main
 
 ## OVERVIEW
-OpenCode plugin that mitigates npm supply chain attacks by gating updates behind a 3-day maturity cooldown. Checks CLI, project deps, and plugins at session start.
+OpenCode plugin that mitigates npm supply chain attacks by gating updates behind a configurable maturity cooldown. Checks CLI, project deps, and plugins at session start. Zero runtime dependencies.
 
 ## STRUCTURE
 ```
 ./
-├── src/index.ts      # Entire plugin logic (~230 lines)
-├── bin/install.cjs   # Postinstall: auto-registers plugin in opencode.json
-├── dist/             # Compiled output (gitignored)
-└── tsconfig.json     # Strict ES2022, Node16 modules
+├── src/                # Plugin source (7 modules, ~500 lines)
+│   ├── index.ts        # Plugin entry, hooks, toast notifications
+│   ├── config.ts       # Maturity config loading (update-guard.jsonc)
+│   ├── cooldown.ts     # 24h check cooldown (XDG_CACHE_HOME)
+│   ├── update-check.ts # npm registry queries for CLI/deps/plugins
+│   ├── report.ts       # Report formatting (mature/waiting/unknown)
+│   ├── helpers.ts      # Shell exec, JSONC parser, version utils
+│   └── types.ts        # UpdateInfo interface
+├── test/               # Vitest tests (2 files)
+│   ├── plugin.test.ts  # Plugin hook behavioral tests
+│   └── install.test.ts # bin/install.cjs register/unregister tests
+├── bin/install.cjs     # Postinstall: registers plugin + disables autoupdate
+└── dist/               # Compiled output (gitignored)
 ```
 
 ## WHERE TO LOOK
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Plugin entry point | `src/index.ts:243` | `updateGuardPlugin` — default export, implements Hooks |
-| Update check logic | `src/index.ts:112` | `checkForUpdates` — queries npm for CLI/deps/plugins |
-| Report formatting | `src/index.ts:178` | `buildUpdateReport` — mature/waiting/unknown buckets |
-| Cooldown cache | `src/index.ts:217` | `shouldCheck`/`markChecked` — 24h cache in `.cache/` |
-| JSONC parser | `src/index.ts:67` | `parseJsonc` — hand-rolled, handles comments outside strings |
+| Plugin entry point | `src/index.ts:44` | `updateGuardPlugin` — default export, implements Hooks |
+| Update check logic | `src/update-check.ts:11` | `checkForUpdates` — queries npm for CLI/deps/plugins |
+| Report formatting | `src/report.ts:5` | `buildUpdateReport` — mature/waiting/unknown buckets |
+| Config loading | `src/config.ts:32` | `loadConfig` — reads `$XDG_CONFIG_HOME/opencode/update-guard.jsonc` |
+| Cooldown cache | `src/cooldown.ts:13` | `shouldCheck`/`markChecked` — 24h cache in XDG cache dir |
+| JSONC parser | `src/helpers.ts:39` | `parseJsonc` — hand-rolled, handles comments outside strings |
 | Plugin registration | `bin/install.cjs` | Writes to `$XDG_CONFIG_HOME/opencode/opencode.json` |
 
 ## CODE MAP
 
 | Symbol | Type | Location | Role |
 |--------|------|----------|------|
-| `updateGuardPlugin` | const | src/index.ts:243 | Plugin factory (default export) |
-| `checkForUpdates` | fn | src/index.ts:112 | Core: queries npm registry for all 3 update sources |
-| `buildUpdateReport` | fn | src/index.ts:178 | Formats mature/waiting/unknown updates into text |
-| `shouldCheck` | fn | src/index.ts:217 | 24h cooldown gate (reads `.cache/update-guard-last-check`) |
-| `markChecked` | fn | src/index.ts:229 | Writes cooldown timestamp |
-| `parseJsonc` | fn | src/index.ts:67 | Strips `//` and `/* */` comments (not inside strings) |
-| `readJsonc` | fn | src/index.ts:96 | Reads file + parseJsonc |
-| `execQuiet` | fn | src/index.ts:31 | `execSync` wrapper, returns empty string on failure |
-| `getLatestVersion` | fn | src/index.ts:39 | `npm view <pkg> version` |
-| `getPublishedEpoch` | fn | src/index.ts:44 | `npm view <pkg> time --json` → epoch seconds |
-| `UpdateInfo` | iface | src/index.ts:21 | `{ type, name, current, latest, ageSeconds }` |
-| `MATURITY_DAYS` | const | src/index.ts:15 | Hardcoded `3` |
+| `updateGuardPlugin` | const | src/index.ts:44 | Plugin factory (default export) |
+| `showToast` | fn | src/index.ts:31 | Toast notification via TUI |
+| `checkForUpdates` | fn | src/update-check.ts:11 | Queries npm registry for all 3 update sources |
+| `buildUpdateReport` | fn | src/report.ts:5 | Formats mature/waiting/unknown updates into text |
+| `loadConfig` | fn | src/config.ts:32 | Reads update-guard.jsonc, sets maturity days/secs |
+| `ensureConfigFile` | fn | src/config.ts:45 | Creates default config if missing |
+| `isMature` | fn | src/config.ts:22 | Checks if age exceeds maturity threshold |
+| `shouldCheck` | fn | src/cooldown.ts:13 | 24h cooldown gate |
+| `markChecked` | fn | src/cooldown.ts:25 | Writes cooldown timestamp |
+| `parseJsonc` | fn | src/helpers.ts:39 | Strips `//` and `/* */` comments (not inside strings) |
+| `readJsonc` | fn | src/helpers.ts:91 | Reads file + parseJsonc |
+| `execQuiet` | fn | src/helpers.ts:4 | `execSync` wrapper, returns empty string on failure |
+| `getLatestVersion` | fn | src/helpers.ts:15 | `npm view <pkg> version` |
+| `getPublishedEpoch` | fn | src/helpers.ts:20 | `npm view <pkg> time --json` → epoch seconds |
+| `formatAge` | fn | src/helpers.ts:33 | Formats seconds as `Xd Yh` |
+| `UpdateInfo` | iface | src/types.ts:1 | `{ type, name, current, latest, ageSeconds }` |
 
 ## CONVENTIONS
 
 - **ESM source, CJS install script**: `src/` is `"type": "module"`. `bin/install.cjs` is explicitly `.cjs` because postinstall must work without ESM support.
-- **Duplicated parseJsonc**: Exists in both `src/index.ts` and `bin/install.cjs`. Intentional — they target different module systems and cannot share imports.
-- **Bun for dev, npm-compatible scripts**: `bun.lock` present but `prepublishOnly` uses `npm run`. Both work.
+- **Duplicated parseJsonc**: Exists in both `src/helpers.ts` and `bin/install.cjs`. Intentional — they target different module systems and cannot share imports.
+- **Biome for linting/formatting**: Replaces ESLint + Prettier. Config in `biome.json` — tabs, double quotes, recommended rules.
+- **Pre-commit hooks**: `simple-git-hooks` + `lint-staged` — auto-fixes formatting + type-checks on commit (`biome check --fix` + `tsc --noEmit`).
+- **Bun for dev, npm for CI/publish**: `bun.lock` present but release workflow uses `npm`.
 - **No published source**: `"files": ["dist", "bin"]` — `src/` excluded from npm package.
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
-- **NEVER modify `MATURITY_DAYS` without considering security implications** — this is the core safety gate
+- **NEVER modify maturity default without considering security implications** — this is the core safety gate
 - **NEVER add runtime dependencies** — the plugin is intentionally zero-dep (`"dependencies": {}`)
 - **NEVER use `@ts-ignore` or `as any`** — tsconfig has `strict: true`
 - **NEVER commit `dist/`** — it's in `.gitignore`, regenerated by `tsc`
-- **NEVER touch `.cache/update-guard-last-check`** outside the `shouldCheck`/`markChecked` functions
+- **NEVER touch cooldown cache file** outside `src/cooldown.ts`
+- **NEVER use ESLint or Prettier** — project uses Biome exclusively
 
 ## COMMANDS
 ```bash
 npm run build           # tsc → dist/
 npm run clean           # rm -rf dist
+npm run test            # vitest run
+npm run lint            # biome check
+npm run lint:fix        # biome check --fix
 npm run prepublishOnly  # clean + build (runs before npm publish)
 ```
 
 ## NOTES
 
-- No tests, no CI, no linting/formatting config
-- Plugin hooks into OpenCode's `event` lifecycle on session start
-- Checks 3 update sources: `opencode-ai` (CLI), `package.json` deps, `opencode.json` plugins
-- 24h check cooldown cached per-project in `.cache/update-guard-last-check`
-- MIT license declared in `package.json` only (no LICENSE file)
+- Configurable maturity: users set `maturityDays` in `$XDG_CONFIG_HOME/opencode/update-guard.jsonc` (default: 3)
+- Plugin hooks: `session.created`, `permission.ask`, `command.execute.before`, `experimental.chat.system.transform`
+- Release: manual `workflow_dispatch` in `.github/workflows/release.yml` (lint → test → build → publish)
+- `@opencode-ai/sdk` imported but not listed in dependencies (provided at runtime by OpenCode)
+- MIT license in `package.json` only (no LICENSE file)
+- tsconfig excludes `test/` — Vitest handles test compilation via Vite

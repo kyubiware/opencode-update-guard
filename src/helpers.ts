@@ -30,6 +30,22 @@ export function getPublishedEpoch(pkg: string, version: string): number | null {
 	}
 }
 
+export function getPublishedTimes(pkg: string): Record<string, number> | null {
+	const result = execQuiet(`npm view ${pkg} time --json`);
+	if (!result) return null;
+	try {
+		const times = JSON.parse(result) as Record<string, string>;
+		const epochs: Record<string, number> = {};
+		for (const [version, iso] of Object.entries(times)) {
+			if (version === "created" || version === "modified") continue;
+			epochs[version] = Math.floor(new Date(iso).getTime() / 1000);
+		}
+		return epochs;
+	} catch {
+		return null;
+	}
+}
+
 export function formatAge(seconds: number): string {
 	const days = Math.floor(seconds / 86400);
 	const hours = Math.floor((seconds % 86400) / 3600);
