@@ -193,10 +193,11 @@ describe("checkForUpdates", () => {
 		});
 	});
 
-	it("returns plugin updates from opencode.json", () => {
+	it("returns plugin updates from global opencode config, not project dir", () => {
 		mockedHelpers.execQuiet.mockReturnValue("");
 		mockedHelpers.readJsonc.mockImplementation((filePath: string) => {
-			if (filePath.endsWith("opencode.json")) {
+			// Plugin refs come from the global config dir, NOT the project dir
+			if (filePath.includes("opencode") && filePath.endsWith("opencode.json")) {
 				return { plugin: ["my-plugin@1.0.0"] };
 			}
 			return null;
@@ -207,7 +208,7 @@ describe("checkForUpdates", () => {
 			"1.1.0": 999_000,
 		});
 
-		const updates = checkForUpdates("/fake/dir");
+		const updates = checkForUpdates("/fake/project/dir");
 		expect(updates).toHaveLength(1);
 		expect(updates[0]).toMatchObject({
 			type: "plugin",
@@ -215,5 +216,13 @@ describe("checkForUpdates", () => {
 			current: "1.0.0",
 			latest: "1.1.0",
 		});
+		// Verify that readJsonc was NOT called with the project dir path for plugins
+		const readCalls = mockedHelpers.readJsonc.mock.calls.map(
+			(c) => c[0] as string,
+		);
+		const projectDirCall = readCalls.find(
+			(p) => p.startsWith("/fake/project/dir") && !p.endsWith("package.json"),
+		);
+		expect(projectDirCall).toBeUndefined();
 	});
 });

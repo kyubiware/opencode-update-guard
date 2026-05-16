@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getMaturitySecs } from "./config.js";
+import { getConfigDir, getMaturitySecs } from "./config.js";
 import { execQuiet, getPublishedTimes, readJsonc } from "./helpers.js";
 import type { UpdateInfo } from "./types.js";
 
@@ -103,10 +103,11 @@ export function checkForUpdates(directory: string): UpdateInfo[] {
 		}
 	}
 
-	// 3. Check opencode.json plugins
-	let configPath = path.join(directory, "opencode.json");
+	// 3. Check opencode.json plugins (global config, not project dir)
+	const globalConfigDir = getConfigDir();
+	let configPath = path.join(globalConfigDir, "opencode.json");
 	if (!fs.existsSync(configPath)) {
-		configPath = path.join(directory, "opencode.jsonc");
+		configPath = path.join(globalConfigDir, "opencode.jsonc");
 	}
 	const openCodeConfig = readJsonc(configPath);
 	const plugins = (openCodeConfig?.plugin ?? []) as string[];
