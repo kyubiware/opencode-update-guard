@@ -126,6 +126,10 @@ function register(configPath) {
 		console.log(`  ✓ Registered ${PLUGIN_ID} in ${path.basename(configPath)}`);
 	}
 
+	// Disable OpenCode's built-in autoupdate so this plugin
+	// becomes the sole update authority with maturity gating
+	config.autoupdate = false;
+
 	fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
@@ -143,6 +147,10 @@ function unregister(configPath) {
 	config.plugin = (config.plugin || []).filter(
 		(p) => !(typeof p === "string" && p.startsWith(PLUGIN_NAME)),
 	);
+
+	// Restore autoupdate since our plugin is no longer managing updates
+	config.autoupdate = true;
+
 	fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 	console.log(`  \u2713 Unregistered ${PLUGIN_NAME}`);
 }

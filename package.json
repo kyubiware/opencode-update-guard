@@ -9,6 +9,7 @@
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build",
     "postinstall": "node bin/install.cjs",
+    "test": "vitest run",
     "lint": "biome check",
     "lint:fix": "biome check --fix",
     "format": "biome format",
@@ -27,7 +28,8 @@
     "@types/node": "22",
     "lint-staged": "^17.0.4",
     "simple-git-hooks": "^2.13.1",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.6"
   },
   "files": [
     "dist",

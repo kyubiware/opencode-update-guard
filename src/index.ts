@@ -350,31 +350,6 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 
 	const hooks: Hooks = {
 		event: async ({ event }) => {
-			if (event.type === "installation.update-available") {
-				const props = event.properties;
-				const version = props.version as string | undefined;
-				if (version) {
-					const pubEpoch = getPublishedEpoch("opencode-ai", version);
-					const nowEpoch = Math.floor(Date.now() / 1000);
-					const ageSeconds = pubEpoch ? nowEpoch - pubEpoch : -1;
-					if (ageSeconds >= 0 && !isMature(ageSeconds)) {
-						blockedPackages.set("opencode", {
-							type: "cli",
-							name: "opencode",
-							current: "",
-							latest: version,
-							ageSeconds,
-						});
-						showToast({
-							title: "Update Guard",
-							message: `opencode ${version} published ${formatAge(ageSeconds)} ago — blocked until mature (${formatAge(maturitySecs - ageSeconds)} remaining).`,
-							variant: "warning",
-							duration: 8000,
-						});
-					}
-				}
-			}
-
 			if (event.type !== "session.created") return;
 
 			// Only check once per day
