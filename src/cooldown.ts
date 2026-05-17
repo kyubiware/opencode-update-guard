@@ -3,6 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getMaturitySecs } from "./config.js";
+import type { UpdateInfo } from "./types.js";
 
 const COOLDOWN_FILE = "update-guard-last-check";
 const CONFIG_FILENAME = "update-guard.jsonc";
@@ -94,7 +96,10 @@ export function shouldCheck(pluginVersion?: string): boolean {
 	}
 }
 
-export function markChecked(pluginVersion?: string): void {
+export function markChecked(
+	pluginVersion?: string,
+	updates?: UpdateInfo[],
+): void {
 	const version = pluginVersion || readPackageVersion();
 	try {
 		const cacheDir = getCacheDir();
@@ -103,10 +108,30 @@ export function markChecked(pluginVersion?: string): void {
 		}
 
 		const fingerprint = getCurrentFingerprint(version);
-		const cache = {
+		const cache: {
+			timestamp: number;
+			fingerprint: string;
+			updates?: {
+				name: string;
+				current: string;
+				latest: string;
+				ageSeconds: number;
+				mature: boolean;
+			}[];
+		} = {
 			timestamp: Date.now(),
 			fingerprint,
 		};
+
+		if (updates && updates.length > 0) {
+			cache.updates = updates.map((u) => ({
+				name: u.name,
+				current: u.current,
+				latest: u.latest,
+				ageSeconds: u.ageSeconds,
+				mature: u.ageSeconds >= getMaturitySecs(),
+			}));
+		}
 
 		fs.writeFileSync(path.join(cacheDir, COOLDOWN_FILE), JSON.stringify(cache));
 	} catch {

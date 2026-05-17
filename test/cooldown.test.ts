@@ -131,6 +131,39 @@ describe("markChecked", () => {
 			expectedFingerprint(configContent, PLUGIN_VERSION),
 		);
 	});
+
+	it("stores updates in cache when provided", () => {
+		writeConfig('{"maturityDays": 3}');
+		markChecked(PLUGIN_VERSION, [
+			{
+				type: "cli",
+				name: "opencode",
+				current: "1.0.0",
+				latest: "1.1.0",
+				ageSeconds: 86400 * 5,
+			},
+		]);
+
+		const cacheRaw = readCache();
+		const cache = JSON.parse(cacheRaw) as {
+			timestamp: number;
+			fingerprint: string;
+			updates: { name: string; mature: boolean }[];
+		};
+		expect(cache.updates).toBeDefined();
+		expect(cache.updates.length).toBe(1);
+		expect(cache.updates[0].name).toBe("opencode");
+		expect(cache.updates[0].mature).toBe(true);
+	});
+
+	it("does not store updates key when no updates provided", () => {
+		writeConfig('{"maturityDays": 3}');
+		markChecked(PLUGIN_VERSION);
+
+		const cacheRaw = readCache();
+		const cache = JSON.parse(cacheRaw) as Record<string, unknown>;
+		expect(cache.updates).toBeUndefined();
+	});
 });
 
 describe("computeFingerprint", () => {

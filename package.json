@@ -3,6 +3,10 @@
   "version": "0.2.0",
   "description": "OpenCode plugin that checks for dependency updates with a maturity cooldown",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./tui": "./dist/tui.js"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",

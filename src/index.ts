@@ -2,14 +2,13 @@
  * OpenCode Update Guard Plugin
  *
  * Checks for dependency updates with a maturity cooldown on session start.
- * Notifies the user and prompts to install mature updates.
+ * Writes update results to a shared cache for the TUI plugin to display.
  */
 
 import type { Hooks, Plugin, PluginOptions } from "@opencode-ai/plugin";
 import type { OpencodeClient, Part } from "@opencode-ai/sdk";
 import {
 	ensureConfigFile,
-	getMaturityDays,
 	getMaturitySecs,
 	isMature,
 	loadConfig,
@@ -71,37 +70,18 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 					),
 				),
 			);
-			markChecked();
 
-			if (updates.length === 0) return;
+			if (updates.length === 0) {
+				markChecked();
+				return;
+			}
 
 			// Build and store the report for system transform
 			const report = buildUpdateReport(updates);
 			lastReport = report;
 
-			const mature = updates.filter((u) => isMature(u.ageSeconds));
-			debugLog("mature updates:", mature.length);
-			if (mature.length > 0) {
-				debugLog("showing mature toast:", mature.length, "of", updates.length);
-				showToast({
-					title: "Update Guard",
-					message: `${mature.length} update(s) ready to install out of ${updates.length} available. Run \`bun run update\` in ${directory} to install.`,
-					variant: "info",
-					duration: 10000,
-				});
-			} else {
-				const waiting = updates.filter(
-					(u) => u.ageSeconds >= 0 && u.ageSeconds < getMaturitySecs(),
-				);
-				if (waiting.length > 0) {
-					showToast({
-						title: "Update Guard",
-						message: `${waiting.length} update(s) waiting for ${getMaturityDays()}-day maturity cooldown.`,
-						variant: "info",
-						duration: 6000,
-					});
-				}
-			}
+			debugLog("writing update cache for TUI plugin");
+			markChecked(undefined, updates);
 
 			// Populate blocked packages from the updates found
 			const waiting = updates.filter(

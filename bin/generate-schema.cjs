@@ -38,7 +38,7 @@ const schema = {
 	additionalProperties: false,
 };
 
-const generated = JSON.stringify(schema, null, 2) + "\n";
+const generated = `${JSON.stringify(schema, null, 2)}\n`;
 
 const existing = fs.existsSync(schemaPath)
 	? fs.readFileSync(schemaPath, "utf-8")
