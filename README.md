@@ -6,25 +6,25 @@ An [OpenCode](https://opencode.ai) plugin that mitigates npm supply chain attack
 
 ## Why?
 
-OpenCode and its plugins update automatically by default. When a malicious package is published to npm, auto-updaters can pull it in before anyone has time to notice. This plugin replaces that flow with a **3-day maturity cooldown**: updates are detected at session start, but only flagged for install once they've been live on npm long enough to be considered safe.
+OpenCode and its plugins update automatically by default. When a malicious package is published to npm, auto-updaters can pull it in before anyone has time to notice. This plugin replaces that flow with a **maturity cooldown**: updates are detected at session start, but only flagged for install once they've been live on npm long enough to be considered safe.
 
 ## How it works
 
 On every new OpenCode session, Update Guard checks three sources for available updates:
 
 1. **OpenCode CLI** (`opencode-ai` on npm)
-2. **Project dependencies** (from `package.json`)
-3. **OpenCode plugins** (from `opencode.json` / `opencode.jsonc`)
+2. **Project dependencies** (from the project's `package.json`)
+3. **OpenCode plugins** (from the global `~/.config/opencode/opencode.json`)
 
-For each available update, it looks up the publish time on npm and classifies it:
+For each available update, it finds the **most recent version that is both newer than installed and past the maturity cooldown**. If no mature version exists, the latest version is reported as waiting. This means you'll be notified about a safe intermediate update even if the absolute latest is still too fresh.
 
 | Status | Meaning |
 |---|---|
-| **Ready to install** | Published 3+ days ago |
+| **Ready to install** | Published past the maturity cooldown |
 | **Waiting for maturity** | Published recently, cooldown period not yet elapsed |
 | **Age unknown** | Publish time couldn't be determined |
 
-Checks run **once per 24 hours** (cached in `.cache/update-guard-last-check`).
+Checks run **once per 24 hours** with a fingerprint-based cache — the cooldown is automatically bypassed if the config file or the plugin itself is updated.
 
 ## Install
 
@@ -56,24 +56,45 @@ If you prefer to register manually, add the plugin to your `opencode.json`:
   - `some-plugin` 1.0.0 → 1.1.0 (1d 3h old, 1d 21h remaining)
 ```
 
-## Disabling auto-updates
+## Configuration
 
-This plugin reports available updates but doesn't block OpenCode's built-in auto-update mechanism on its own. To fully disable auto-updates, set the following in your `opencode.json`:
+Create or edit `~/.config/opencode/update-guard.jsonc`:
 
-```json
+```jsonc
 {
-  "autoUpdate": false
+  // "$schema": "https://github.com/kyubiware/opencode-update-guard/raw/main/update-guard.schema.json",
+
+  // Minimum age (in days) a package version must be before it's considered
+  // "mature" enough to install. Default: 3
+  "maturityDays": 2,
+
+  // Enable debug logging to diagnose plugin issues.
+  // Logs are written to ~/.cache/opencode/update-guard-debug.log
+  "debug": false
 }
 ```
 
-## Configuration
-
 | Setting | Default | Description |
 |---|---|---|
-| Maturity cooldown | 3 days | How long a version must be published before it's considered safe to install |
-| Check frequency | 24 hours | Minimum time between update checks |
+| `maturityDays` | 3 | How long a version must be published before it's considered safe to install |
+| `debug` | `false` | Enable debug logging for troubleshooting |
+| Check frequency | 24 hours | Minimum time between update checks (not configurable) |
 
-These are currently hardcoded. Configurable options may be added in a future release.
+## Debugging
+
+To troubleshoot issues, enable debug mode in your config and restart OpenCode:
+
+```jsonc
+{ "debug": true }
+```
+
+Then view the logs:
+
+```bash
+npm run logs
+```
+
+The log file is at `~/.cache/opencode/update-guard-debug.log`.
 
 ## License
 

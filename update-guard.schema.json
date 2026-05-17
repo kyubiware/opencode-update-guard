@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/kyubiware/opencode-update-guard/update-guard.schema.json",
+  "title": "Update Guard Configuration",
+  "description": "Configuration for the opencode-update-guard plugin. Place at ~/.config/opencode/update-guard.jsonc",
+  "type": "object",
+  "properties": {
+    "maturityDays": {
+      "type": "number",
+      "description": "Minimum age (in days) a package version must be published before it's considered safe to install. Higher values provide more protection against supply chain attacks but delay updates.",
+      "default": 3,
+      "minimum": 0,
+      "examples": [
+        2,
+        3,
+        7
+      ]
+    },
+    "debug": {
+      "type": "boolean",
+      "description": "Enable debug logging to troubleshoot plugin issues. Logs are written to $XDG_CACHE_HOME/opencode/update-guard-debug.log. View with: npm run logs",
+      "default": false
+    }
+  },
+  "additionalProperties": false
+}

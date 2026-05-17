@@ -34,7 +34,8 @@
   },
   "files": [
     "dist",
-    "bin"
+    "bin",
+    "update-guard.schema.json"
   ],
   "license": "MIT",
   "author": "kyubiware",

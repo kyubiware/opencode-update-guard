@@ -66,6 +66,8 @@ export function ensureConfigFile(): void {
 		}
 
 		const content = `{
+  // "$schema": "https://github.com/kyubiware/opencode-update-guard/raw/main/update-guard.schema.json",
+
   // Minimum age (in days) a package version must be before it's considered
   // "mature" enough to install. This cooldown helps protect against supply
   // chain attacks on newly published packages.
