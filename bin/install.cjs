@@ -9,7 +9,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
-const url = require("node:url");
 
 const CONFIG_DIR =
 	process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config", "opencode");
@@ -18,9 +17,6 @@ const PLUGIN_VERSION = JSON.parse(
 	fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
 ).version;
 const PLUGIN_ID = `${PLUGIN_NAME}@${PLUGIN_VERSION}`;
-
-const TUI_PATH = path.join(__dirname, "..", "dist", "tui.js");
-const TUI_ID = url.pathToFileURL(TUI_PATH).href;
 
 function findConfigFile() {
 	for (const name of ["opencode.json", "opencode.jsonc"]) {
@@ -32,10 +28,7 @@ function findConfigFile() {
 
 function isRegistered(config) {
 	return (config.plugin || []).some(
-		(p) =>
-			typeof p === "string" &&
-			(p.startsWith(`${PLUGIN_NAME}@`) ||
-				p.includes("/opencode-update-guard/dist/tui.js")),
+		(p) => typeof p === "string" && p.startsWith(`${PLUGIN_NAME}@`),
 	);
 }
 
@@ -104,11 +97,8 @@ function parseJsonc(content) {
 }
 
 function registerPlugin(config, name, id) {
-	const isFileUrl = id.startsWith("file://");
 	const existingIdx = config.plugin.findIndex(
-		(p) =>
-			typeof p === "string" &&
-			(isFileUrl ? p === id : p.startsWith(`${name}@`)),
+		(p) => typeof p === "string" && p.startsWith(`${name}@`),
 	);
 
 	if (existingIdx !== -1) {
@@ -139,7 +129,6 @@ function register(configPath) {
 	if (!config.plugin) config.plugin = [];
 
 	registerPlugin(config, PLUGIN_NAME, PLUGIN_ID);
-	registerPlugin(config, "opencode-update-guard-tui", TUI_ID);
 
 	// Disable OpenCode's built-in autoupdate so this plugin
 	// becomes the sole update authority with maturity gating
@@ -160,12 +149,7 @@ function unregister(configPath) {
 	}
 
 	config.plugin = (config.plugin || []).filter(
-		(p) =>
-			!(
-				typeof p === "string" &&
-				(p.startsWith(`${PLUGIN_NAME}@`) ||
-					p.includes("/opencode-update-guard/dist/tui.js"))
-			),
+		(p) => !(typeof p === "string" && p.startsWith(`${PLUGIN_NAME}@`)),
 	);
 
 	// Restore autoupdate since our plugin is no longer managing updates
