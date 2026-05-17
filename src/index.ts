@@ -91,8 +91,24 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 				const report = buildUpdateReport(updates);
 				lastReport = report;
 
-				debugLog("writing update cache for TUI plugin");
+				// Write cache for potential TUI plugin consumption
 				markChecked(undefined, updates);
+
+				// Show prominent warning toast for mature updates
+				const mature = updates.filter((u) => isMature(u.ageSeconds));
+				debugLog("mature updates:", mature.length, "of", updates.length);
+				if (mature.length > 0) {
+					debugLog("showing update notification");
+					const lines = mature
+						.map((u) => `${u.name} ${u.current} → ${u.latest}`)
+						.join(", ");
+					showToast({
+						title: "⚠️ Updates Available",
+						message: `${mature.length} update(s) ready: ${lines}`,
+						variant: "warning",
+						duration: 60000,
+					});
+				}
 
 				// Populate blocked packages from the updates found
 				const waiting = updates.filter(

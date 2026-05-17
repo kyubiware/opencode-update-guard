@@ -1,11 +1,3 @@
-/**
- * Tests for src/tui.ts — TUI plugin
- *
- * Verifies the TUI plugin exports a TuiPluginModule, reads the shared
- * cache, shows a blocking DialogConfirm for mature updates, and
- * deduplicates dialog display.
- */
-
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -40,15 +32,10 @@ function writeCache(data: object): void {
 
 function createMockApi() {
 	return {
-		event: {
-			on: vi.fn(),
-		},
+		event: { on: vi.fn() },
 		ui: {
 			DialogConfirm: vi.fn((props) => props),
-			dialog: {
-				replace: vi.fn(),
-				clear: vi.fn(),
-			},
+			dialog: { replace: vi.fn(), clear: vi.fn() },
 		},
 	};
 }
@@ -71,24 +58,19 @@ describe("updateGuardTui", () => {
 			timestamp: Date.now(),
 			fingerprint: "abc",
 			updates: [
-				{
-					name: "foo",
-					current: "1.0.0",
-					latest: "1.1.0",
-					ageSeconds: 864000,
-					mature: true,
-				},
+				{ name: "foo", current: "1.0.0", latest: "1.1.0", ageSeconds: 864000 },
 			],
 		});
 
 		const api = createMockApi();
 		const mod = await loadTuiModule();
 		await mod.tui(
-			api as unknown as import("@opencode-ai/plugin/tui").TuiPluginApi,
+			api as any,
 			undefined,
-			{ state: "first" } as unknown as import("@opencode-ai/plugin/tui").TuiPluginMeta,
+			{ state: "first" } as any,
 		);
 
+		// Find the session.created handler
 		const sessionCreatedCall = api.event.on.mock.calls.find(
 			([type]) => type === "session.created",
 		);
@@ -105,33 +87,22 @@ describe("updateGuardTui", () => {
 			timestamp: Date.now(),
 			fingerprint: "abc",
 			updates: [
-				{
-					name: "foo",
-					current: "1.0.0",
-					latest: "1.1.0",
-					ageSeconds: 864000,
-					mature: true,
-				},
+				{ name: "foo", current: "1.0.0", latest: "1.1.0", ageSeconds: 864000 },
 			],
 		});
 
 		const api = createMockApi();
 		const mod = await loadTuiModule();
-		await mod.tui(
-			api as unknown as import("@opencode-ai/plugin/tui").TuiPluginApi,
-			undefined,
-			{ state: "first" } as unknown as import("@opencode-ai/plugin/tui").TuiPluginMeta,
-		);
+		await mod.tui(api as any, undefined, { state: "first" } as any);
 
 		const sessionCreatedCall = api.event.on.mock.calls.find(
 			([type]) => type === "session.created",
 		);
 		const handler = sessionCreatedCall[1];
-
 		await handler();
-		expect(api.ui.dialog.replace).toHaveBeenCalledTimes(1);
+		await handler(); // second call
 
-		await handler();
+		// replace should only be called once
 		expect(api.ui.dialog.replace).toHaveBeenCalledTimes(1);
 	});
 });

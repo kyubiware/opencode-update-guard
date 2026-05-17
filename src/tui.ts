@@ -8,6 +8,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { PluginOptions } from "@opencode-ai/plugin";
 import type {
 	TuiPlugin,
 	TuiPluginApi,
@@ -25,12 +26,11 @@ interface CachedUpdate {
 	current: string;
 	latest: string;
 	ageSeconds: number;
-	mature: boolean;
 }
 
 interface CacheData {
 	timestamp: number;
-	fingerprint: string;
+	fingerprint?: string;
 	updates?: CachedUpdate[];
 }
 
@@ -89,7 +89,7 @@ function showDialogIfNeeded(api: TuiPluginApi): void {
 
 const updateGuardTui: TuiPlugin = async (
 	api: TuiPluginApi,
-	_options,
+	_options: PluginOptions | undefined,
 	_meta: TuiPluginMeta,
 ) => {
 	api.event.on("session.created", async () => {

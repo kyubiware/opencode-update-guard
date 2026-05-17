@@ -9,16 +9,18 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
+const url = require("node:url");
 
 const CONFIG_DIR =
 	process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config", "opencode");
 const PLUGIN_NAME = "opencode-update-guard";
-const TUI_PLUGIN_NAME = `${PLUGIN_NAME}/tui`;
 const PLUGIN_VERSION = JSON.parse(
 	fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
 ).version;
 const PLUGIN_ID = `${PLUGIN_NAME}@${PLUGIN_VERSION}`;
-const TUI_PLUGIN_ID = `${TUI_PLUGIN_NAME}@${PLUGIN_VERSION}`;
+
+const TUI_PATH = path.join(__dirname, "..", "dist", "tui.js");
+const TUI_ID = url.pathToFileURL(TUI_PATH).href;
 
 function findConfigFile() {
 	for (const name of ["opencode.json", "opencode.jsonc"]) {
@@ -32,7 +34,8 @@ function isRegistered(config) {
 	return (config.plugin || []).some(
 		(p) =>
 			typeof p === "string" &&
-			(p.startsWith(`${PLUGIN_NAME}@`) || p.startsWith(`${TUI_PLUGIN_NAME}@`)),
+			(p.startsWith(`${PLUGIN_NAME}@`) ||
+				p.includes("/opencode-update-guard/dist/tui.js")),
 	);
 }
 
@@ -101,8 +104,11 @@ function parseJsonc(content) {
 }
 
 function registerPlugin(config, name, id) {
+	const isFileUrl = id.startsWith("file://");
 	const existingIdx = config.plugin.findIndex(
-		(p) => typeof p === "string" && p.startsWith(`${name}@`),
+		(p) =>
+			typeof p === "string" &&
+			(isFileUrl ? p === id : p.startsWith(`${name}@`)),
 	);
 
 	if (existingIdx !== -1) {
@@ -133,7 +139,7 @@ function register(configPath) {
 	if (!config.plugin) config.plugin = [];
 
 	registerPlugin(config, PLUGIN_NAME, PLUGIN_ID);
-	registerPlugin(config, TUI_PLUGIN_NAME, TUI_PLUGIN_ID);
+	registerPlugin(config, "opencode-update-guard-tui", TUI_ID);
 
 	// Disable OpenCode's built-in autoupdate so this plugin
 	// becomes the sole update authority with maturity gating
@@ -157,7 +163,8 @@ function unregister(configPath) {
 		(p) =>
 			!(
 				typeof p === "string" &&
-				(p.startsWith(`${PLUGIN_NAME}@`) || p.startsWith(`${TUI_PLUGIN_NAME}@`))
+				(p.startsWith(`${PLUGIN_NAME}@`) ||
+					p.includes("/opencode-update-guard/dist/tui.js"))
 			),
 	);
 
