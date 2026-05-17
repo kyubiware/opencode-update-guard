@@ -1,7 +1,7 @@
 /**
  * OpenCode Update Guard — TUI Plugin
  *
- * Shows a blocking dialog on startup when updates are available.
+ * Shows a blocking dialog on startup when mature updates are available.
  * Reads update data written by the server plugin to a shared cache file.
  */
 
@@ -13,21 +13,25 @@ import type {
 	TuiPluginApi,
 	TuiPluginMeta,
 } from "@opencode-ai/plugin/tui";
+import { isMature, loadConfig } from "./config.js";
+import { debugLog } from "./debug.js";
 
 // ── Shared Cache ──────────────────────────────────────────────
 
 const UPDATE_CACHE_FILE = "update-guard-last-check";
 
-interface CachedUpdates {
+interface CachedUpdate {
+	name: string;
+	current: string;
+	latest: string;
+	ageSeconds: number;
+	mature: boolean;
+}
+
+interface CacheData {
 	timestamp: number;
 	fingerprint: string;
-	updates?: {
-		name: string;
-		current: string;
-		latest: string;
-		ageSeconds: number;
-		mature: boolean;
-	}[];
+	updates?: CachedUpdate[];
 }
 
 function getCacheDir(): string {
@@ -36,21 +40,49 @@ function getCacheDir(): string {
 	return path.join(base, "opencode");
 }
 
-function readCachedUpdates(): CachedUpdates | null {
+function readCachedUpdates(): CachedUpdate[] {
 	try {
 		const cachePath = path.join(getCacheDir(), UPDATE_CACHE_FILE);
-		if (!fs.existsSync(cachePath)) return null;
+		if (!fs.existsSync(cachePath)) return [];
 		const raw = fs.readFileSync(cachePath, "utf-8").trim();
-		return JSON.parse(raw) as CachedUpdates;
+		const data: CacheData = JSON.parse(raw);
+		return data.updates || [];
 	} catch {
-		return null;
+		return [];
 	}
 }
 
-function formatAge(seconds: number): string {
-	const days = Math.floor(seconds / 86400);
-	const hours = Math.floor((seconds % 86400) / 3600);
-	return days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+// ── Dialog State ──────────────────────────────────────────────
+
+let dialogShown = false;
+
+function showDialogIfNeeded(api: TuiPluginApi): void {
+	if (dialogShown) return;
+
+	const updates = readCachedUpdates();
+	if (updates.length === 0) return;
+
+	loadConfig();
+	const mature = updates.filter((u) => isMature(u.ageSeconds));
+	if (mature.length === 0) return;
+
+	dialogShown = true;
+	debugLog("tui: showing dialog for", mature.length, "mature updates");
+
+	const lines = mature.map((u) => `  • ${u.name} ${u.current} → ${u.latest}`);
+
+	api.ui.dialog.replace(() =>
+		api.ui.DialogConfirm({
+			title: "Update Guard — Updates Available",
+			message: `${mature.length} update(s) ready to install:\n\n${lines.join("\n")}\n\nDismiss to continue.`,
+			onCancel: () => {
+				api.ui.dialog.clear();
+			},
+			onConfirm: () => {
+				api.ui.dialog.clear();
+			},
+		}),
+	);
 }
 
 // ── TUI Plugin Entry Point ────────────────────────────────────
@@ -60,48 +92,13 @@ const updateGuardTui: TuiPlugin = async (
 	_options,
 	_meta: TuiPluginMeta,
 ) => {
-	const cache = readCachedUpdates();
-	if (!cache?.updates || cache.updates.length === 0) return;
+	api.event.on("session.created", async () => {
+		showDialogIfNeeded(api);
+	});
 
-	const mature = cache.updates.filter((u) => u.mature);
-	const waiting = cache.updates.filter((u) => !u.mature);
-
-	if (mature.length === 0 && waiting.length === 0) return;
-
-	const lines: string[] = [];
-
-	if (mature.length > 0) {
-		lines.push("Ready to install:");
-		for (const u of mature) {
-			lines.push(
-				`  • ${u.name} ${u.current} → ${u.latest} (${formatAge(u.ageSeconds)} old)`,
-			);
-		}
-	}
-
-	if (waiting.length > 0) {
-		if (lines.length > 0) lines.push("");
-		lines.push("Waiting for maturity:");
-		for (const u of waiting) {
-			lines.push(
-				`  • ${u.name} ${u.current} → ${u.latest} (${formatAge(u.ageSeconds)} old)`,
-			);
-		}
-	}
-
-	const message = lines.join("\n");
-
-	// Show blocking dialog — user must acknowledge before continuing
-	api.ui.dialog.replace(() => {
-		const { DialogAlert } = api.ui;
-		return DialogAlert({
-			title: "Update Guard",
-			message,
-			onConfirm: () => {
-				api.ui.dialog.clear();
-			},
-		});
+	api.event.on("session.updated", async () => {
+		showDialogIfNeeded(api);
 	});
 };
 
-export default updateGuardTui;
+export default { tui: updateGuardTui };

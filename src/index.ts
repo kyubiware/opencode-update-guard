@@ -53,54 +53,62 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 
 	const hooks: Hooks = {
 		event: async ({ event }) => {
-			debugLog("event received:", event.type);
-			if (event.type !== "session.created" && event.type !== "session.updated")
-				return;
+			try {
+				debugLog("event received:", event.type);
+				if (
+					event.type !== "session.created" &&
+					event.type !== "session.updated"
+				)
+					return;
 
-			if (updateCheckDone) return;
-			updateCheckDone = true;
+				debugLog("session event matched, updateCheckDone:", updateCheckDone);
+				if (updateCheckDone) return;
+				updateCheckDone = true;
 
-			// Only check once per day
-			const should = shouldCheck();
-			debugLog("shouldCheck:", should);
-			if (!should) return;
+				// Only check once per day
+				const should = shouldCheck();
+				debugLog("shouldCheck:", should);
+				if (!should) return;
 
-			debugLog("checking for updates, directory:", directory);
-			const updates = checkForUpdates(directory);
-			debugLog(
-				"updates found:",
-				updates.length,
-				JSON.stringify(
-					updates.map(
-						(u) => `${u.name} ${u.current}->${u.latest} age=${u.ageSeconds}s`,
+				debugLog("checking for updates, directory:", directory);
+				const updates = checkForUpdates(directory);
+				debugLog(
+					"updates found:",
+					updates.length,
+					JSON.stringify(
+						updates.map(
+							(u) => `${u.name} ${u.current}->${u.latest} age=${u.ageSeconds}s`,
+						),
 					),
-				),
-			);
+				);
 
-			if (updates.length === 0) {
-				markChecked();
-				return;
-			}
-
-			// Build and store the report for system transform
-			const report = buildUpdateReport(updates);
-			lastReport = report;
-
-			debugLog("writing update cache for TUI plugin");
-			markChecked(undefined, updates);
-
-			// Populate blocked packages from the updates found
-			const waiting = updates.filter(
-				(u) => u.ageSeconds >= 0 && !isMature(u.ageSeconds),
-			);
-			for (const u of waiting) {
-				blockedPackages.set(u.name, u);
-			}
-			// Clean up packages that are now mature
-			for (const [name, info] of blockedPackages) {
-				if (isMature(info.ageSeconds)) {
-					blockedPackages.delete(name);
+				if (updates.length === 0) {
+					markChecked();
+					return;
 				}
+
+				// Build and store the report for system transform
+				const report = buildUpdateReport(updates);
+				lastReport = report;
+
+				debugLog("writing update cache for TUI plugin");
+				markChecked(undefined, updates);
+
+				// Populate blocked packages from the updates found
+				const waiting = updates.filter(
+					(u) => u.ageSeconds >= 0 && !isMature(u.ageSeconds),
+				);
+				for (const u of waiting) {
+					blockedPackages.set(u.name, u);
+				}
+				// Clean up packages that are now mature
+				for (const [name, info] of blockedPackages) {
+					if (isMature(info.ageSeconds)) {
+						blockedPackages.delete(name);
+					}
+				}
+			} catch (err) {
+				debugLog("ERROR in event handler:", err);
 			}
 		},
 

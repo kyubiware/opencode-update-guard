@@ -13,10 +13,12 @@ const os = require("node:os");
 const CONFIG_DIR =
 	process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config", "opencode");
 const PLUGIN_NAME = "opencode-update-guard";
+const TUI_PLUGIN_NAME = `${PLUGIN_NAME}/tui`;
 const PLUGIN_VERSION = JSON.parse(
 	fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
 ).version;
 const PLUGIN_ID = `${PLUGIN_NAME}@${PLUGIN_VERSION}`;
+const TUI_PLUGIN_ID = `${TUI_PLUGIN_NAME}@${PLUGIN_VERSION}`;
 
 function findConfigFile() {
 	for (const name of ["opencode.json", "opencode.jsonc"]) {
@@ -28,7 +30,9 @@ function findConfigFile() {
 
 function isRegistered(config) {
 	return (config.plugin || []).some(
-		(p) => typeof p === "string" && p.startsWith(PLUGIN_NAME),
+		(p) =>
+			typeof p === "string" &&
+			(p.startsWith(`${PLUGIN_NAME}@`) || p.startsWith(`${TUI_PLUGIN_NAME}@`)),
 	);
 }
 
@@ -96,6 +100,26 @@ function parseJsonc(content) {
 	return JSON.parse(result);
 }
 
+function registerPlugin(config, name, id) {
+	const existingIdx = config.plugin.findIndex(
+		(p) => typeof p === "string" && p.startsWith(`${name}@`),
+	);
+
+	if (existingIdx !== -1) {
+		if (config.plugin[existingIdx] === id) {
+			console.log(
+				`  ⊙ ${id} already registered in ${path.basename(findConfigFile())}`,
+			);
+			return;
+		}
+		config.plugin[existingIdx] = id;
+		console.log(`  ↑ Updated to ${id} in ${path.basename(findConfigFile())}`);
+	} else {
+		config.plugin.push(id);
+		console.log(`  ✓ Registered ${id} in ${path.basename(findConfigFile())}`);
+	}
+}
+
 function register(configPath) {
 	let config;
 
@@ -108,23 +132,8 @@ function register(configPath) {
 
 	if (!config.plugin) config.plugin = [];
 
-	const existingIdx = config.plugin.findIndex(
-		(p) => typeof p === "string" && p.startsWith(PLUGIN_NAME),
-	);
-
-	if (existingIdx !== -1) {
-		if (config.plugin[existingIdx] === PLUGIN_ID) {
-			console.log(
-				`  ⊙ ${PLUGIN_ID} already registered in ${path.basename(configPath)}`,
-			);
-			return;
-		}
-		config.plugin[existingIdx] = PLUGIN_ID;
-		console.log(`  ↑ Updated to ${PLUGIN_ID} in ${path.basename(configPath)}`);
-	} else {
-		config.plugin.push(PLUGIN_ID);
-		console.log(`  ✓ Registered ${PLUGIN_ID} in ${path.basename(configPath)}`);
-	}
+	registerPlugin(config, PLUGIN_NAME, PLUGIN_ID);
+	registerPlugin(config, TUI_PLUGIN_NAME, TUI_PLUGIN_ID);
 
 	// Disable OpenCode's built-in autoupdate so this plugin
 	// becomes the sole update authority with maturity gating
@@ -145,7 +154,11 @@ function unregister(configPath) {
 	}
 
 	config.plugin = (config.plugin || []).filter(
-		(p) => !(typeof p === "string" && p.startsWith(PLUGIN_NAME)),
+		(p) =>
+			!(
+				typeof p === "string" &&
+				(p.startsWith(`${PLUGIN_NAME}@`) || p.startsWith(`${TUI_PLUGIN_NAME}@`))
+			),
 	);
 
 	// Restore autoupdate since our plugin is no longer managing updates
