@@ -29,22 +29,50 @@ describe("updateGuardPlugin — installation.update-available removal", () => {
 			"utf-8",
 		);
 
-		// The only blockedPackages.set should be in the session.created handler,
+		// The only blockedPackages.set should be in the session event handler,
 		// not in any installation.update-available handler
 		const lines = source.split("\n");
-		let inSessionCreated = false;
+		let inSessionHandler = false;
 		let foundIllegalSet = false;
 
 		for (const line of lines) {
-			if (line.includes("session.created")) inSessionCreated = true;
+			if (
+				line.includes("session.created") ||
+				line.includes("session.updated")
+			)
+				inSessionHandler = true;
 			if (
 				line.includes("blockedPackages.set") &&
-				!inSessionCreated
+				!inSessionHandler
 			) {
 				foundIllegalSet = true;
 			}
 		}
 
 		expect(foundIllegalSet).toBe(false);
+	});
+});
+
+describe("updateGuardPlugin — session event triggers", () => {
+	it("should respond to session.updated event, not just session.created", () => {
+		const source = fs.readFileSync(
+			path.join(__dirname, "..", "src", "index.ts"),
+			"utf-8",
+		);
+
+		// The plugin must accept session.updated as a trigger since
+		// session.created does not fire on session resume/reconnect
+		expect(source).toContain("session.updated");
+		expect(source).toContain("session.created");
+	});
+
+	it("should only run the update check once per session (dedup guard)", () => {
+		const source = fs.readFileSync(
+			path.join(__dirname, "..", "src", "index.ts"),
+			"utf-8",
+		);
+
+		// Must have a guard to prevent re-running on subsequent session.updated events
+		expect(source).toMatch(/updateCheckDone|hasRunUpdateCheck|checkRan/);
 	});
 });

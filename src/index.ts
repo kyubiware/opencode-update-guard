@@ -25,6 +25,7 @@ import { checkForUpdates } from "./update-check.js";
 const blockedPackages = new Map<string, UpdateInfo>();
 let client: OpencodeClient;
 let lastReport = "";
+let updateCheckDone = false;
 
 // ── Toast ──────────────────────────────────────────────────────
 
@@ -48,11 +49,16 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 	ensureConfigFile();
 	loadConfig();
 	debugLog("plugin loaded, directory:", directory);
+	updateCheckDone = false;
 
 	const hooks: Hooks = {
 		event: async ({ event }) => {
 			debugLog("event received:", event.type);
-			if (event.type !== "session.created") return;
+			if (event.type !== "session.created" && event.type !== "session.updated")
+				return;
+
+			if (updateCheckDone) return;
+			updateCheckDone = true;
 
 			// Only check once per day
 			const should = shouldCheck();
