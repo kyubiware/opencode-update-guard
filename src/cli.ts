@@ -7,6 +7,9 @@ import { formatAge } from "./helpers.js";
 import type { UpdateInfo } from "./types.js";
 import { checkForUpdates } from "./update-check.js";
 
+const args = process.argv.slice(2);
+const flagAll = args.includes("--all") || args.includes("-a");
+
 function installPackage(name: string, version: string, type: string): boolean {
 	try {
 		if (type === "cli") {
@@ -18,6 +21,43 @@ function installPackage(name: string, version: string, type: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+function installUpdates(toInstall: UpdateInfo[]): void {
+	const installSpinner = clack.spinner();
+	installSpinner.start("Installing updates...");
+	let installed = 0;
+	let failed = 0;
+
+	for (const u of toInstall) {
+		if (u.type === "pkg") {
+			installSpinner.stop(`${u.name}: project dependency — skip`);
+			clack.log.warn(
+				`${u.name}: run \`npm update ${u.name}\` or \`bun update ${u.name}\` in the project to update.`,
+			);
+			installSpinner.start("Installing updates...");
+			continue;
+		}
+
+		installSpinner.message(`Installing ${u.name}@${u.latest}...`);
+		const success = installPackage(u.name, u.latest, u.type);
+		if (success) {
+			installed++;
+		} else {
+			failed++;
+		}
+	}
+
+	if (failed > 0) {
+		installSpinner.stop(`Installed ${installed}, failed ${failed}`);
+		clack.log.warn(
+			`${failed} update(s) failed. Check npm permissions and try again.`,
+		);
+	} else {
+		installSpinner.stop(`${installed} package(s) updated`);
+	}
+
+	clack.outro("Done! Restart opencode to use updated packages.");
 }
 
 async function main() {
@@ -68,6 +108,27 @@ async function main() {
 		return;
 	}
 
+	// --all flag: install all mature updates without prompting
+	if (flagAll) {
+		installUpdates(mature);
+		return;
+	}
+
+	// Interactive: offer to install all first, then fall back to multiselect
+	const installAll = await clack.confirm({
+		message: `Install all ${mature.length} mature update(s)?`,
+	});
+
+	if (clack.isCancel(installAll)) {
+		clack.cancel("Cancelled");
+		return;
+	}
+
+	if (installAll) {
+		installUpdates(mature);
+		return;
+	}
+
 	const selected = await clack.multiselect({
 		message: "Select updates to install",
 		options: mature.map((u) => ({
@@ -89,41 +150,7 @@ async function main() {
 		return;
 	}
 
-	// Install selected updates
-	const installSpinner = clack.spinner();
-	installSpinner.start("Installing updates...");
-	let installed = 0;
-	let failed = 0;
-
-	for (const u of toInstall) {
-		if (u.type === "pkg") {
-			installSpinner.stop(`${u.name}: project dependency — skip`);
-			clack.log.warn(
-				`${u.name}: run \`npm update ${u.name}\` or \`bun update ${u.name}\` in the project to update.`,
-			);
-			installSpinner.start("Installing updates...");
-			continue;
-		}
-
-		installSpinner.message(`Installing ${u.name}@${u.latest}...`);
-		const success = installPackage(u.name, u.latest, u.type);
-		if (success) {
-			installed++;
-		} else {
-			failed++;
-		}
-	}
-
-	if (failed > 0) {
-		installSpinner.stop(`Installed ${installed}, failed ${failed}`);
-		clack.log.warn(
-			`${failed} update(s) failed. Check npm permissions and try again.`,
-		);
-	} else {
-		installSpinner.stop(`${installed} package(s) updated`);
-	}
-
-	clack.outro("Done! Restart opencode to use updated packages.");
+	installUpdates(toInstall);
 }
 
 main().catch((err) => {
