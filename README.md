@@ -1,8 +1,6 @@
 # opencode-update-guard
 
-An [OpenCode](https://opencode.ai) plugin that mitigates npm supply chain attack risk by replacing OpenCode's auto-update behavior with a maturity-gated update system.
-
-> **⚠️ Work in progress.** This plugin is early-stage and untested. Use at your own risk.
+An [OpenCode](https://opencode.ai) plugin that replaces automatic npm updates with a maturity-gated system. Instead of pulling the latest version immediately, Update Guard waits until a package has been published long enough to be considered safe.
 
 ## Why?
 
@@ -22,9 +20,11 @@ For each available update, it finds the **most recent version that is both newer
 |---|---|
 | **Ready to install** | Published past the maturity cooldown |
 | **Waiting for maturity** | Published recently, cooldown period not yet elapsed |
-| **Age unknown** | Publish time couldn't be determined |
+| **Age unknown** | Publish time could not be determined from the npm registry |
 
-Checks run **once per 24 hours** with a fingerprint-based cache — the cooldown is automatically bypassed if the config file or the plugin itself is updated.
+The plugin also **actively blocks immature updates**. If an OpenCode agent tries to install a package that hasn't matured yet, the plugin intercepts the request and warns you. It does the same for direct package manager commands (npm, yarn, pnpm, bun) run inside OpenCode.
+
+Checks run **once per 24 hours** with a fingerprint-based cache. The cooldown is automatically bypassed if the config file or the plugin itself is updated.
 
 ## Install
 
@@ -32,29 +32,45 @@ Checks run **once per 24 hours** with a fingerprint-based cache — the cooldown
 npm install -g opencode-update-guard
 ```
 
-The postinstall script automatically registers the plugin in your global `opencode.json` (`~/.config/opencode/opencode.json`).
+The postinstall script automatically:
+- Registers the plugin in your global `opencode.json` (`~/.config/opencode/opencode.json`)
+- Disables OpenCode's built-in autoupdate (`"autoupdate": false`) so Update Guard becomes the sole update authority
 
-## Manual setup
+To re-enable auto-update, remove the plugin and set `"autoupdate": true` in your `opencode.json`.
 
-If you prefer to register manually, add the plugin to your `opencode.json`:
+## Updating packages
 
-```json
-{
-  "plugin": ["opencode-update-guard"]
-}
+Run the interactive updater from any terminal:
+
+```bash
+opencode-update
 ```
 
-## Output example
+This presents a multi-select checklist of mature updates. Pick which ones to install and the tool handles the rest.
 
 ```
-**Update Guard** — 3-day maturity cooldown
-
-**Ready to install:**
-  - `opencode` 0.4.1 → 0.4.3 (5d 2h old)
-
-**Waiting for maturity:**
-  - `some-plugin` 1.0.0 → 1.1.0 (1d 3h old, 1d 21h remaining)
+┌  Update Guard
+│
+◆  Found 3 update(s)
+│
+│  Available Updates ───────────────────────────────────────────────────╮
+│                                                                       │
+│    3 update(s) ready to install:                                      │
+│      • opencode 1.14.51 → 1.15.0 (5d 2h old)                         │
+│      • oh-my-openagent 4.0.0 → 4.1.2 (4d 8h old)                     │
+│      • @cortexkit/opencode-magic-context 0.18.0 → 0.20.0 (3d 19h old) │
+│                                                                       │
+├───────────────────────────────────────────────────────────────────────╯
+│
+◆  Select updates to install
+│  ○ opencode 1.14.51 → 1.15.0 (5d 2h old)
+│  ● oh-my-openagent 4.0.0 → 4.1.2 (4d 8h old)
+│  ● @cortexkit/opencode-magic-context 0.18.0 → 0.20.0 (3d 19h old)
+│
+└  2 package(s) updated
 ```
+
+CLI and plugin updates are installed via `npm install -g`. Project dependency updates show the command to run manually.
 
 ## Configuration
 
@@ -62,7 +78,8 @@ Create or edit `~/.config/opencode/update-guard.jsonc`:
 
 ```jsonc
 {
-  // "$schema": "https://github.com/kyubiware/opencode-update-guard/raw/main/update-guard.schema.json",
+  // Point your editor to the schema for autocomplete and validation
+  "$schema": "https://github.com/kyubiware/opencode-update-guard/raw/main/update-guard.schema.json",
 
   // Minimum age (in days) a package version must be before it's considered
   // "mature" enough to install. Default: 3
@@ -80,6 +97,10 @@ Create or edit `~/.config/opencode/update-guard.jsonc`:
 | `debug` | `false` | Enable debug logging for troubleshooting |
 | Check frequency | 24 hours | Minimum time between update checks (not configurable) |
 
+Cache and log files are stored in `~/.cache/opencode/`:
+- `update-guard-last-check` — check cooldown state (auto-invalidated on config or plugin version changes)
+- `update-guard-debug.log` — debug output (only written when `debug: true`)
+
 ## Debugging
 
 To troubleshoot issues, enable debug mode in your config and restart OpenCode:
@@ -91,10 +112,18 @@ To troubleshoot issues, enable debug mode in your config and restart OpenCode:
 Then view the logs:
 
 ```bash
-npm run logs
+cat ~/.cache/opencode/update-guard-debug.log
 ```
 
-The log file is at `~/.cache/opencode/update-guard-debug.log`.
+## Manual setup
+
+If you prefer to register the plugin manually, add it to your `opencode.json`:
+
+```json
+{
+  "plugin": ["opencode-update-guard"]
+}
+```
 
 ## License
 

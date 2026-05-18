@@ -90,23 +90,37 @@ async function main() {
 	}
 
 	// Install selected updates
+	const installSpinner = clack.spinner();
+	installSpinner.start("Installing updates...");
+	let installed = 0;
+	let failed = 0;
+
 	for (const u of toInstall) {
 		if (u.type === "pkg") {
+			installSpinner.stop(`${u.name}: project dependency — skip`);
 			clack.log.warn(
-				`${u.name}: Project dependency — run \`npm update ${u.name}\` or \`bun update ${u.name}\` manually.`,
+				`${u.name}: run \`npm update ${u.name}\` or \`bun update ${u.name}\` in the project to update.`,
 			);
+			installSpinner.start("Installing updates...");
 			continue;
 		}
 
-		const installSpinner = clack.spinner();
-		installSpinner.start(`Installing ${u.name}@${u.latest}...`);
-
+		installSpinner.message(`Installing ${u.name}@${u.latest}...`);
 		const success = installPackage(u.name, u.latest, u.type);
 		if (success) {
-			installSpinner.stop(`${u.name} updated to ${u.latest}`);
+			installed++;
 		} else {
-			installSpinner.stop(`Failed to update ${u.name}`);
+			failed++;
 		}
+	}
+
+	if (failed > 0) {
+		installSpinner.stop(`Installed ${installed}, failed ${failed}`);
+		clack.log.warn(
+			`${failed} update(s) failed. Check npm permissions and try again.`,
+		);
+	} else {
+		installSpinner.stop(`${installed} package(s) updated`);
 	}
 
 	clack.outro("Done! Restart opencode to use updated packages.");
