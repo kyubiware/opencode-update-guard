@@ -1,5 +1,8 @@
-import { execSync } from "node:child_process";
+import { exec, execSync } from "node:child_process";
 import * as fs from "node:fs";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
 
 export function execQuiet(cmd: string): string {
 	try {
@@ -7,6 +10,17 @@ export function execQuiet(cmd: string): string {
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 		}).trim();
+	} catch {
+		return "";
+	}
+}
+
+export async function execQuietAsync(cmd: string): Promise<string> {
+	try {
+		const { stdout } = await execAsync(cmd, {
+			encoding: "utf-8",
+		});
+		return stdout.trim();
 	} catch {
 		return "";
 	}
@@ -32,6 +46,24 @@ export function getPublishedEpoch(pkg: string, version: string): number | null {
 
 export function getPublishedTimes(pkg: string): Record<string, number> | null {
 	const result = execQuiet(`npm view ${pkg} time --json`);
+	if (!result) return null;
+	try {
+		const times = JSON.parse(result) as Record<string, string>;
+		const epochs: Record<string, number> = {};
+		for (const [version, iso] of Object.entries(times)) {
+			if (version === "created" || version === "modified") continue;
+			epochs[version] = Math.floor(new Date(iso).getTime() / 1000);
+		}
+		return epochs;
+	} catch {
+		return null;
+	}
+}
+
+export async function getPublishedTimesAsync(
+	pkg: string,
+): Promise<Record<string, number> | null> {
+	const result = await execQuietAsync(`npm view ${pkg} time --json`);
 	if (!result) return null;
 	try {
 		const times = JSON.parse(result) as Record<string, string>;

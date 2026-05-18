@@ -67,7 +67,7 @@ async function main() {
 	s.start("Checking for updates...");
 
 	loadConfig();
-	const updates = checkForUpdates(process.cwd());
+	const updates = await checkForUpdates(process.cwd());
 
 	s.stop(`Found ${updates.length} update(s)`);
 

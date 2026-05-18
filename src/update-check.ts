@@ -1,7 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getConfigDir, getMaturitySecs } from "./config.js";
-import { execQuiet, getPublishedTimes, readJsonc } from "./helpers.js";
+import {
+	execQuietAsync,
+	getPublishedTimesAsync,
+	readJsonc,
+} from "./helpers.js";
 import type { UpdateInfo } from "./types.js";
 
 function semverGt(a: string, b: string): boolean {
@@ -17,13 +21,13 @@ function semverGt(a: string, b: string): boolean {
 	return false;
 }
 
-export function findBestUpdate(
+export async function findBestUpdate(
 	pkg: string,
 	currentVersion: string,
 	nowEpoch: number,
 	maturitySecs: number,
-): { version: string; ageSeconds: number } | null {
-	const times = getPublishedTimes(pkg);
+): Promise<{ version: string; ageSeconds: number } | null> {
+	const times = await getPublishedTimesAsync(pkg);
 	if (!times) return null;
 
 	const newerVersions = Object.entries(times).filter(([version]) =>
@@ -61,15 +65,17 @@ export function findBestUpdate(
 	return { version: latestVersion, ageSeconds: nowEpoch - latestEpoch };
 }
 
-export function checkForUpdates(directory: string): UpdateInfo[] {
+export async function checkForUpdates(
+	directory: string,
+): Promise<UpdateInfo[]> {
 	const updates: UpdateInfo[] = [];
 	const nowEpoch = Math.floor(Date.now() / 1000);
 	const maturitySecs = getMaturitySecs();
 
 	// 1. Check OpenCode CLI
-	const currentCli = execQuiet("opencode --version");
+	const currentCli = await execQuietAsync("opencode --version");
 	if (currentCli) {
-		const cliUpdate = findBestUpdate(
+		const cliUpdate = await findBestUpdate(
 			"opencode-ai",
 			currentCli,
 			nowEpoch,
@@ -91,7 +97,12 @@ export function checkForUpdates(directory: string): UpdateInfo[] {
 	const deps = (pkgConfig?.dependencies ?? {}) as Record<string, string>;
 	for (const [name, version] of Object.entries(deps)) {
 		const current = version.replace(/^[\^~>=<]+/, "");
-		const pkgUpdate = findBestUpdate(name, current, nowEpoch, maturitySecs);
+		const pkgUpdate = await findBestUpdate(
+			name,
+			current,
+			nowEpoch,
+			maturitySecs,
+		);
 		if (pkgUpdate) {
 			updates.push({
 				type: "pkg",
@@ -116,7 +127,12 @@ export function checkForUpdates(directory: string): UpdateInfo[] {
 		const match = pluginRef.match(/^(@?[^@]+)@(.+)$/);
 		if (!match) continue;
 		const [, name, current] = match;
-		const pluginUpdate = findBestUpdate(name, current, nowEpoch, maturitySecs);
+		const pluginUpdate = await findBestUpdate(
+			name,
+			current,
+			nowEpoch,
+			maturitySecs,
+		);
 		if (pluginUpdate) {
 			updates.push({
 				type: "plugin",
