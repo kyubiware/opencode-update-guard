@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 
-import { execSync } from "node:child_process";
+import { exec } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as clack from "@clack/prompts";
-import { getMaturitySecs, isMature, loadConfig } from "./config.js";
+import {
+	getConfigDir,
+	getMaturitySecs,
+	isMature,
+	loadConfig,
+} from "./config.js";
 import { formatAge } from "./helpers.js";
 import type { UpdateInfo } from "./types.js";
 import { checkForUpdates } from "./update-check.js";
@@ -10,12 +17,61 @@ import { checkForUpdates } from "./update-check.js";
 const args = process.argv.slice(2);
 const flagAll = args.includes("--all") || args.includes("-a");
 
-function installPackage(name: string, version: string, type: string): boolean {
+/**
+ * Update the version reference for a plugin in the global opencode config.
+ * This ensures checkForUpdates won't re-report the same update on the next run.
+ */
+export function updatePluginVersionInConfig(
+	name: string,
+	version: string,
+): void {
+	const configDir = getConfigDir();
+	let configPath = path.join(configDir, "opencode.json");
+	if (!fs.existsSync(configPath)) {
+		configPath = path.join(configDir, "opencode.jsonc");
+	}
+	if (!fs.existsSync(configPath)) return;
+
+	try {
+		const raw = fs.readFileSync(configPath, "utf-8");
+		// Parse preserving order — we need to find and replace the plugin ref
+		const config = JSON.parse(raw) as Record<string, unknown>;
+		const plugins = config.plugin as string[] | undefined;
+		if (!plugins) return;
+
+		const prefix = `${name}@`;
+		const idx = plugins.findIndex(
+			(p) => typeof p === "string" && p.startsWith(prefix),
+		);
+		if (idx === -1) return;
+
+		plugins[idx] = `${name}@${version}`;
+		fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+	} catch {
+		// non-critical — next run will re-detect, but won't break install
+	}
+}
+
+function execAsync(cmd: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		exec(cmd, (err: Error | null) => {
+			if (err) reject(err);
+			else resolve();
+		});
+	});
+}
+
+export async function installPackage(
+	name: string,
+	version: string,
+	type: string,
+): Promise<boolean> {
 	try {
 		if (type === "cli") {
-			execSync(`npm install -g opencode-ai@${version}`, { stdio: "pipe" });
+			await execAsync(`npm install -g opencode-ai@${version}`);
 		} else if (type === "plugin") {
-			execSync(`npm install -g ${name}@${version}`, { stdio: "pipe" });
+			await execAsync(`npm install -g ${name}@${version}`);
+			updatePluginVersionInConfig(name, version);
 		}
 		return true;
 	} catch {
@@ -23,7 +79,7 @@ function installPackage(name: string, version: string, type: string): boolean {
 	}
 }
 
-function installUpdates(toInstall: UpdateInfo[]): void {
+export async function installUpdates(toInstall: UpdateInfo[]): Promise<void> {
 	const installSpinner = clack.spinner();
 	installSpinner.start("Installing updates...");
 	let installed = 0;
@@ -40,7 +96,7 @@ function installUpdates(toInstall: UpdateInfo[]): void {
 		}
 
 		installSpinner.message(`Installing ${u.name}@${u.latest}...`);
-		const success = installPackage(u.name, u.latest, u.type);
+		const success = await installPackage(u.name, u.latest, u.type);
 		if (success) {
 			installed++;
 		} else {
@@ -110,7 +166,7 @@ async function main() {
 
 	// --all flag: install all mature updates without prompting
 	if (flagAll) {
-		installUpdates(mature);
+		await installUpdates(mature);
 		return;
 	}
 
@@ -125,7 +181,7 @@ async function main() {
 	}
 
 	if (installAll) {
-		installUpdates(mature);
+		await installUpdates(mature);
 		return;
 	}
 
@@ -150,10 +206,16 @@ async function main() {
 		return;
 	}
 
-	installUpdates(toInstall);
+	await installUpdates(toInstall);
 }
 
-main().catch((err) => {
-	clack.log.error(`Unexpected error: ${err}`);
-	process.exit(1);
-});
+// Only run main when this file is executed directly, not when imported for tests
+if (import.meta.url.startsWith("file:")) {
+	const modulePath = new URL(import.meta.url).pathname;
+	if (process.argv[1] === modulePath) {
+		main().catch((err) => {
+			clack.log.error(`Unexpected error: ${err}`);
+			process.exit(1);
+		});
+	}
+}
