@@ -158,7 +158,7 @@ describe("checkForUpdates", () => {
 			"1.1.0": 999_000,
 		});
 
-		const updates = await checkForUpdates("/fake/dir");
+		const updates = await checkForUpdates();
 		expect(updates).toHaveLength(1);
 		expect(updates[0]).toMatchObject({
 			type: "cli",
@@ -169,7 +169,7 @@ describe("checkForUpdates", () => {
 		});
 	});
 
-	it("returns package updates from package.json dependencies", async () => {
+	it("should NOT check project package.json dependencies", async () => {
 		mockedHelpers.execQuietAsync.mockResolvedValue("");
 		mockedHelpers.readJsonc.mockImplementation((filePath: string) => {
 			if (filePath.endsWith("package.json")) {
@@ -183,14 +183,12 @@ describe("checkForUpdates", () => {
 			"1.1.0": 999_000,
 		});
 
-		const updates = await checkForUpdates("/fake/dir");
-		expect(updates).toHaveLength(1);
-		expect(updates[0]).toMatchObject({
-			type: "pkg",
-			name: "my-pkg",
-			current: "1.0.0",
-			latest: "1.1.0",
-		});
+		const updates = await checkForUpdates();
+
+		// Project-level deps should NOT appear in results
+		const pkgNames = updates.map((u) => u.name);
+		expect(pkgNames).not.toContain("my-pkg");
+		expect(updates.every((u) => u.type !== "pkg")).toBe(true);
 	});
 
 	it("returns plugin updates from global opencode config, not project dir", async () => {
@@ -208,7 +206,7 @@ describe("checkForUpdates", () => {
 			"1.1.0": 999_000,
 		});
 
-		const updates = await checkForUpdates("/fake/project/dir");
+		const updates = await checkForUpdates();
 		expect(updates).toHaveLength(1);
 		expect(updates[0]).toMatchObject({
 			type: "plugin",

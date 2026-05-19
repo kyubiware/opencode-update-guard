@@ -65,9 +65,7 @@ export async function findBestUpdate(
 	return { version: latestVersion, ageSeconds: nowEpoch - latestEpoch };
 }
 
-export async function checkForUpdates(
-	directory: string,
-): Promise<UpdateInfo[]> {
+export async function checkForUpdates(): Promise<UpdateInfo[]> {
 	const updates: UpdateInfo[] = [];
 	const nowEpoch = Math.floor(Date.now() / 1000);
 	const maturitySecs = getMaturitySecs();
@@ -92,29 +90,7 @@ export async function checkForUpdates(
 		}
 	}
 
-	// 2. Check package.json dependencies
-	const pkgConfig = readJsonc(path.join(directory, "package.json"));
-	const deps = (pkgConfig?.dependencies ?? {}) as Record<string, string>;
-	for (const [name, version] of Object.entries(deps)) {
-		const current = version.replace(/^[\^~>=<]+/, "");
-		const pkgUpdate = await findBestUpdate(
-			name,
-			current,
-			nowEpoch,
-			maturitySecs,
-		);
-		if (pkgUpdate) {
-			updates.push({
-				type: "pkg",
-				name,
-				current,
-				latest: pkgUpdate.version,
-				ageSeconds: pkgUpdate.ageSeconds,
-			});
-		}
-	}
-
-	// 3. Check opencode.json plugins (global config, not project dir)
+	// 2. Check opencode.json plugins (global config, not project dir)
 	const globalConfigDir = getConfigDir();
 	let configPath = path.join(globalConfigDir, "opencode.json");
 	if (!fs.existsSync(configPath)) {

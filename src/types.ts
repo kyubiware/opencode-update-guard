@@ -1,5 +1,5 @@
 export interface UpdateInfo {
-	type: "cli" | "pkg" | "plugin";
+	type: "cli" | "plugin";
 	name: string;
 	current: string;
 	latest: string;

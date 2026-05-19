@@ -71,7 +71,7 @@ const updateGuardPlugin: Plugin = async (input, _options?: PluginOptions) => {
 				if (!should) return;
 
 				debugLog("checking for updates, directory:", directory);
-				const updates = await checkForUpdates(directory);
+				const updates = await checkForUpdates();
 				debugLog(
 					"updates found:",
 					updates.length,

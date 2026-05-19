@@ -175,15 +175,6 @@ export async function installUpdates(toInstall: UpdateInfo[]): Promise<void> {
 	let failed = 0;
 
 	for (const u of toInstall) {
-		if (u.type === "pkg") {
-			installSpinner.stop(`${u.name}: project dependency — skip`);
-			clack.log.warn(
-				`${u.name}: run \`npm update ${u.name}\` or \`bun update ${u.name}\` in the project to update.`,
-			);
-			installSpinner.start("Installing updates...");
-			continue;
-		}
-
 		installSpinner.message(`Installing ${u.name}@${u.latest}...`);
 		const success = await installPackage(u.name, u.latest, u.type);
 		if (success) {
@@ -212,7 +203,7 @@ async function main() {
 	s.start("Checking for updates...");
 
 	loadConfig();
-	const updates = await checkForUpdates(process.cwd());
+	const updates = await checkForUpdates();
 
 	s.stop(`Found ${updates.length} update(s)`);
 
