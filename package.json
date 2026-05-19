@@ -17,6 +17,7 @@
     "logs": "cat ${XDG_CACHE_HOME:-$HOME/.cache}/opencode/update-guard-debug.log 2>/dev/null || echo 'No debug log found. Enable \"debug\": true in ~/.config/opencode/update-guard.jsonc and restart opencode.'",
     "ci": "biome check --fix && tsc && vitest run",
     "cli": "tsx src/cli.ts",
+    "release": "bun scripts/release.ts",
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {

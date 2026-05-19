@@ -4,17 +4,18 @@ An [OpenCode](https://opencode.ai) plugin that replaces automatic npm updates wi
 
 ## Why?
 
-OpenCode and its plugins update automatically by default. When a malicious package is published to npm, auto-updaters can pull it in before anyone has time to notice. This plugin replaces that flow with a **maturity cooldown**: updates are detected at session start, but only flagged for install once they've been live on npm long enough to be considered safe.
+OpenCode auto-updates by default. So do its plugins. When a malicious package hits npm, an auto-updater can pull it in before anyone notices. Supply chain attacks on npm are not theoretical. They are a recurring, demonstrated risk.
+
+This plugin replaces the auto-update flow with a **maturity cooldown**. New versions are tracked at session start, but they are only offered for install once they have been live on npm long enough to be considered safe.
 
 ## How it works
 
-On every new OpenCode session, Update Guard checks three sources for available updates:
+On every new OpenCode session, Update Guard checks two sources for available updates:
 
 1. **OpenCode CLI** (`opencode-ai` on npm)
-2. **Project dependencies** (from the project's `package.json`)
-3. **OpenCode plugins** (from the global `~/.config/opencode/opencode.json`)
+2. **OpenCode plugins** (from the global `~/.config/opencode/opencode.json`)
 
-For each available update, it finds the **most recent version that is both newer than installed and past the maturity cooldown**. If no mature version exists, the latest version is reported as waiting. This means you'll be notified about a safe intermediate update even if the absolute latest is still too fresh.
+For each available update, it finds the **most recent version that is both newer than installed and past the maturity cooldown**. If the absolute latest is too fresh but an intermediate version is mature, that intermediate version is offered. If no mature version exists, the latest is reported as waiting.
 
 | Status | Meaning |
 |---|---|
@@ -22,9 +23,21 @@ For each available update, it finds the **most recent version that is both newer
 | **Waiting for maturity** | Published recently, cooldown period not yet elapsed |
 | **Age unknown** | Publish time could not be determined from the npm registry |
 
-The plugin also **actively blocks immature updates**. If an OpenCode agent tries to install a package that hasn't matured yet, the plugin intercepts the request and warns you. It does the same for direct package manager commands (npm, yarn, pnpm, bun) run inside OpenCode.
+### Defense layers
 
-Checks run **once per 24 hours** with a fingerprint-based cache. The cooldown is automatically bypassed if the config file or the plugin itself is updated.
+Update Guard uses four layers to stop immature packages from being installed:
+
+1. **Blocks auto-updates** — Disables OpenCode's built-in autoupdate at install time. Intercepts agent permission requests for immature packages and denies them. Injects warnings into package manager commands (npm, bun, yarn, pnpm) when they target a blocked package.
+
+2. **Presents toast notifications** — At session start, shows a 60-second warning toast listing mature updates that are ready to install. When an agent or command tries to install an immature package, shows an 8-second toast explaining the block.
+
+3. **Injects system prompt directives** — Adds a "MUST NOT install" directive into the AI system prompt, telling the assistant not to suggest, run, or assist with installing immature packages.
+
+4. **Offers a CLI tool** — `opencode-update` is an interactive TUI for controlled, manual updates.
+
+### Check frequency and cache
+
+Checks run **once per 24 hours** with a cooldown cache. The cooldown is immediately bypassed if the config file or plugin version changes.
 
 ## Install
 
@@ -46,7 +59,19 @@ Run the interactive updater from any terminal:
 opencode-update
 ```
 
-This presents a multi-select checklist of mature updates. Pick which ones to install and the tool handles the rest.
+This presents a summary with two sections: "Ready to install" (mature) and "Waiting for maturity" (immature). You then choose one of three selection modes:
+
+- **Install mature only** — installs all mature updates immediately
+- **Install all** — installs everything, with a confirmation step for immature packages
+- **Select individually** — multi-select with visual indicators: ready packages show a checkmark, waiting packages show an hourglass
+
+Use `--all` or `-a` to bypass the menu and install everything directly (still confirms immature packages):
+
+```bash
+opencode-update --all
+```
+
+CLI and plugin updates are installed via `npm install -g`. Plugin versions are also updated in `opencode.json`. After installation, the tool prompts you to restart OpenCode.
 
 ```
 ┌  Update Guard
@@ -70,8 +95,6 @@ This presents a multi-select checklist of mature updates. Pick which ones to ins
 └  2 package(s) updated
 ```
 
-CLI and plugin updates are installed via `npm install -g`. Project dependency updates show the command to run manually.
-
 ## Configuration
 
 Create or edit `~/.config/opencode/update-guard.jsonc`:
@@ -91,14 +114,18 @@ Create or edit `~/.config/opencode/update-guard.jsonc`:
 }
 ```
 
-| Setting | Default | Description |
-|---|---|---|
-| `maturityDays` | 3 | How long a version must be published before it's considered safe to install |
-| `debug` | `false` | Enable debug logging for troubleshooting |
-| Check frequency | 24 hours | Minimum time between update checks (not configurable) |
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `$schema` | string | (commented out) | Points to the schema URL for editor autocomplete |
+| `maturityDays` | number (≥0) | 3 | How long a version must be published before it's safe to install |
+| `debug` | boolean | false | Enable debug logging to `~/.cache/opencode/update-guard-debug.log` |
+
+**Check frequency:** 24 hours (hardcoded, not configurable)
+
+**Cooldown bypass:** If the config file or plugin version changes, the cooldown is bypassed immediately.
 
 Cache and log files are stored in `~/.cache/opencode/`:
-- `update-guard-last-check` — check cooldown state (auto-invalidated on config or plugin version changes)
+- `update-guard-last-check` — cooldown state (auto-invalidated on config or plugin version changes)
 - `update-guard-debug.log` — debug output (only written when `debug: true`)
 
 ## Debugging
