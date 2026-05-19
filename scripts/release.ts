@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { execSync } from "node:child_process";
+
 const validBumps = ["patch", "minor", "major"] as const;
 type BumpType = (typeof validBumps)[number];
 
@@ -15,31 +17,17 @@ const currentVersion = await Bun.file("package.json")
 	.then((p) => p.version as string);
 
 console.log(`Current version: v${currentVersion}`);
-console.log(`Triggering ${bump} release...`);
+console.log(`Bumping ${bump}...`);
 
-const proc = Bun.spawn(
-	[
-		"gh",
-		"workflow",
-		"run",
-		"release.yml",
-		"--ref",
-		"main",
-		"-f",
-		`bump_type=${bump}`,
-	],
-	{
-		stdout: "inherit",
-		stderr: "inherit",
-	},
-);
+const newVersion = execSync(`npm version ${bump} -m "release: v%s"`)
+	.toString()
+	.trim();
 
-const exitCode = await proc.exited;
+console.log(`Version bumped to ${newVersion}`);
+console.log("Pushing commit and tag...");
 
-if (exitCode === 0) {
-	console.log("Release workflow triggered successfully.");
-	console.log("Monitor at: https://github.com/kyubiware/opencode-update-guard/actions");
-} else {
-	console.error(`Failed to trigger release (exit code ${exitCode})`);
-	process.exit(exitCode);
-}
+execSync("git push", { stdio: "inherit" });
+execSync(`git push ${newVersion}`, { stdio: "inherit" });
+
+console.log(`Released ${newVersion}`);
+console.log("https://github.com/kyubiware/opencode-update-guard/actions");
