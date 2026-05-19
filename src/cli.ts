@@ -286,7 +286,8 @@ async function main() {
 // Only run main when this file is executed directly, not when imported for tests
 if (import.meta.url.startsWith("file:")) {
 	const modulePath = new URL(import.meta.url).pathname;
-	if (process.argv[1] === modulePath) {
+	const argvResolved = fs.realpathSync(process.argv[1]);
+	if (argvResolved === modulePath) {
 		main().catch((err) => {
 			clack.log.error(`Unexpected error: ${err}`);
 			process.exit(1);

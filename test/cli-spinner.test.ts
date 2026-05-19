@@ -58,6 +58,7 @@ vi.mock("node:fs", () => ({
 	existsSync: vi.fn(() => true),
 	readFileSync: vi.fn(() => JSON.stringify({ plugin: [] })),
 	writeFileSync: vi.fn(),
+	realpathSync: vi.fn((p: string) => p),
 }));
 
 import { execSync, exec } from "node:child_process";
