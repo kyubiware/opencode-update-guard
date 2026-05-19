@@ -14,6 +14,95 @@ import { formatAge } from "./helpers.js";
 import type { UpdateInfo } from "./types.js";
 import { checkForUpdates } from "./update-check.js";
 
+// ── Partition ──────────────────────────────────────────────────
+
+export function partitionUpdates(updates: UpdateInfo[]): {
+	mature: UpdateInfo[];
+	immature: UpdateInfo[];
+} {
+	const mature: UpdateInfo[] = [];
+	const immature: UpdateInfo[] = [];
+	for (const u of updates) {
+		if (isMature(u.ageSeconds)) {
+			mature.push(u);
+		} else {
+			immature.push(u);
+		}
+	}
+	return { mature, immature };
+}
+
+// ── Immature Confirmation ──────────────────────────────────────
+
+export async function confirmImmatureUpdates(
+	immature: UpdateInfo[],
+): Promise<boolean | "cancel"> {
+	if (immature.length === 0) return true;
+
+	const names = immature.map((u) => u.name).join(", ");
+	const confirmed = await clack.confirm({
+		message: `⚠️ ${immature.length} IMMATURE update(s) (${names}). Install anyway?`,
+	});
+
+	if (clack.isCancel(confirmed)) return "cancel";
+	return confirmed;
+}
+
+// ── Selection Menu ─────────────────────────────────────────────
+
+export async function selectUpdates(
+	updates: UpdateInfo[],
+): Promise<UpdateInfo[] | "cancel"> {
+	const { mature, immature } = partitionUpdates(updates);
+
+	type Choice = "mature" | "all" | "select";
+	const options: { value: Choice; label: string; hint?: string }[] = [];
+
+	if (mature.length > 0) {
+		options.push({
+			value: "mature",
+			label: `Install ${mature.length} mature update(s) only`,
+			hint: "safe",
+		});
+	}
+
+	options.push({
+		value: "all",
+		label: `Install all ${updates.length} update(s)`,
+		hint: immature.length > 0 ? "includes immature" : undefined,
+	});
+
+	options.push({
+		value: "select",
+		label: "Select updates individually",
+	});
+
+	const choice = await clack.select<Choice>({
+		message: "What would you like to do?",
+		options,
+	});
+
+	if (clack.isCancel(choice)) return "cancel";
+
+	if (choice === "mature") return mature;
+	if (choice === "all") return updates;
+
+	// Individual selection
+	const selected = await clack.multiselect({
+		message: "Select updates to install",
+		options: updates.map((u) => ({
+			value: u,
+			label: `${u.name} ${u.current} → ${u.latest} (${formatAge(u.ageSeconds)} old) ${isMature(u.ageSeconds) ? "✓ ready" : "⏳ waiting"}`,
+			hint: u.type,
+		})),
+		required: false,
+	});
+
+	if (clack.isCancel(selected)) return "cancel";
+
+	return selected as UpdateInfo[];
+}
+
 const args = process.argv.slice(2);
 const flagAll = args.includes("--all") || args.includes("-a");
 
@@ -132,10 +221,9 @@ async function main() {
 		return;
 	}
 
-	const mature = updates.filter((u) => isMature(u.ageSeconds));
-	const waiting = updates.filter((u) => !isMature(u.ageSeconds));
+	const { mature, immature } = partitionUpdates(updates);
 
-	// Build summary
+	// Build summary showing both mature and immature updates
 	const lines: string[] = [];
 	if (mature.length > 0) {
 		lines.push(`  ${mature.length} update(s) ready to install:`);
@@ -145,11 +233,11 @@ async function main() {
 			);
 		}
 	}
-	if (waiting.length > 0) {
+	if (immature.length > 0) {
 		lines.push("");
-		lines.push(`  ${waiting.length} update(s) waiting for maturity:`);
+		lines.push(`  ${immature.length} update(s) waiting for maturity:`);
 		const maturitySecs = getMaturitySecs();
-		for (const u of waiting) {
+		for (const u of immature) {
 			const remaining = maturitySecs - u.ageSeconds;
 			lines.push(
 				`    • ${u.name} ${u.current} → ${u.latest} (${formatAge(remaining)} remaining)`,
@@ -159,54 +247,49 @@ async function main() {
 
 	clack.note(lines.join("\n"), "Available Updates");
 
-	if (mature.length === 0) {
-		clack.outro("No mature updates available yet. Check back later.");
-		return;
-	}
-
-	// --all flag: install all mature updates without prompting
+	// --all flag: install all updates (including immature) without prompting
 	if (flagAll) {
-		await installUpdates(mature);
+		const confirmed = await confirmImmatureUpdates(immature);
+		if (confirmed === "cancel") {
+			clack.cancel("Cancelled");
+			return;
+		}
+		if (confirmed === false) {
+			clack.outro("Install cancelled.");
+			return;
+		}
+		await installUpdates(updates);
 		return;
 	}
 
-	// Interactive: offer to install all first, then fall back to multiselect
-	const installAll = await clack.confirm({
-		message: `Install all ${mature.length} mature update(s)?`,
-	});
+	// Interactive selection
+	const selected = await selectUpdates(updates);
 
-	if (clack.isCancel(installAll)) {
+	if (selected === "cancel") {
 		clack.cancel("Cancelled");
 		return;
 	}
 
-	if (installAll) {
-		await installUpdates(mature);
-		return;
-	}
-
-	const selected = await clack.multiselect({
-		message: "Select updates to install",
-		options: mature.map((u) => ({
-			value: u,
-			label: `${u.name} ${u.current} → ${u.latest} (${formatAge(u.ageSeconds)} old)`,
-			hint: u.type,
-		})),
-		required: false,
-	});
-
-	if (clack.isCancel(selected)) {
-		clack.cancel("Cancelled");
-		return;
-	}
-
-	const toInstall = selected as UpdateInfo[];
-	if (toInstall.length === 0) {
+	if (selected.length === 0) {
 		clack.outro("No updates selected.");
 		return;
 	}
 
-	await installUpdates(toInstall);
+	// Check if any immature updates were selected
+	const { immature: selectedImmature } = partitionUpdates(selected);
+	if (selectedImmature.length > 0) {
+		const confirmed = await confirmImmatureUpdates(selectedImmature);
+		if (confirmed === "cancel") {
+			clack.cancel("Cancelled");
+			return;
+		}
+		if (confirmed === false) {
+			clack.outro("Install cancelled.");
+			return;
+		}
+	}
+
+	await installUpdates(selected);
 }
 
 // Only run main when this file is executed directly, not when imported for tests
