@@ -12,6 +12,12 @@ if (!validBumps.includes(bump)) {
 	process.exit(1);
 }
 
+const dirty = execSync("git status --porcelain").toString().trim();
+if (dirty) {
+	console.error("Working tree is not clean. Commit or stash changes first.");
+	process.exit(1);
+}
+
 const currentVersion = await Bun.file("package.json")
 	.json()
 	.then((p) => p.version as string);
@@ -27,7 +33,7 @@ console.log(`Version bumped to ${newVersion}`);
 console.log("Pushing commit and tag...");
 
 execSync("git push", { stdio: "inherit" });
-execSync(`git push ${newVersion}`, { stdio: "inherit" });
+execSync(`git push origin ${newVersion}`, { stdio: "inherit" });
 
 console.log(`Released ${newVersion}`);
 console.log("https://github.com/kyubiware/opencode-update-guard/actions");
