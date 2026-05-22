@@ -2,3 +2,4 @@ node_modules/
 dist/
 .sisyphus/
 package-lock.json
+.omo/
