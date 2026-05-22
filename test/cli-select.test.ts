@@ -6,7 +6,7 @@
  */
 
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import type { UpdateInfo } from "../src/types.js";
+import type { UpdateInfo, VersionInfo, DetailedUpdateInfo } from "../src/types.js";
 
 // Mock @clack/prompts
 const mockSpinnerInstance = {
@@ -60,7 +60,9 @@ import * as clack from "@clack/prompts";
 import { isMature, getMaturitySecs } from "../src/config.js";
 import {
 	partitionUpdates,
+	partitionVersions,
 	selectUpdates,
+	selectVersions,
 	confirmImmatureUpdates,
 } from "../src/cli.js";
 
@@ -294,5 +296,274 @@ describe("selectUpdates", () => {
 		const callArgs = mockedSelect.mock.calls[0][0];
 		const values = callArgs.options.map((o: { value: string }) => o.value);
 		expect(values).not.toContain("mature");
+	});
+});
+
+// ── partitionVersions ──────────────────────────────────────────
+
+const matureVer1: VersionInfo = { version: "1.0.0", ageSeconds: 86400 * 5 };
+const matureVer2: VersionInfo = { version: "2.0.0", ageSeconds: 86400 * 5 };
+const immatureVer3: VersionInfo = { version: "3.0.0", ageSeconds: 86400 * 1 };
+const immatureVer1_5: VersionInfo = { version: "1.5.0", ageSeconds: 86400 * 1 };
+
+describe("partitionVersions", () => {
+	it("should split mixed input into newestMature and immature sorted desc", () => {
+		const versions = [matureVer1, matureVer2, immatureVer3, immatureVer1_5];
+		const result = partitionVersions(versions);
+
+		expect(result.newestMature).toEqual(matureVer2);
+		expect(result.immature).toHaveLength(2);
+		expect(result.immature[0]).toEqual(immatureVer3);
+		expect(result.immature[1]).toEqual(immatureVer1_5);
+	});
+
+	it("should return null newestMature when no mature versions exist", () => {
+		const versions = [immatureVer3, immatureVer1_5];
+		const result = partitionVersions(versions);
+
+		expect(result.newestMature).toBeNull();
+		expect(result.immature).toHaveLength(2);
+	});
+
+	it("should return empty immature when all versions are mature", () => {
+		const versions = [matureVer1, matureVer2];
+		const result = partitionVersions(versions);
+
+		expect(result.newestMature).toEqual(matureVer2);
+		expect(result.immature).toEqual([]);
+	});
+
+	it("should handle empty input", () => {
+		const result = partitionVersions([]);
+
+		expect(result.newestMature).toBeNull();
+		expect(result.immature).toEqual([]);
+	});
+
+	it("should sort immature versions descending by semver", () => {
+		const versions = [immatureVer1_5, immatureVer3];
+		const result = partitionVersions(versions);
+
+		expect(result.newestMature).toBeNull();
+		expect(result.immature).toHaveLength(2);
+		expect(result.immature[0]).toEqual(immatureVer3);
+		expect(result.immature[1]).toEqual(immatureVer1_5);
+	});
+});
+
+// ── selectVersions ─────────────────────────────────────────────
+
+const detailedPkg1: DetailedUpdateInfo = {
+	type: "plugin",
+	name: "oh-my-openagent",
+	current: "4.0.0",
+	versions: [immatureVer3, matureVer2, matureVer1], // sorted desc by semver
+};
+
+const detailedPkg2: DetailedUpdateInfo = {
+	type: "cli",
+	name: "opencode",
+	current: "1.15.3",
+	versions: [immatureVer3, immatureVer1_5], // all immature, sorted desc
+};
+
+const detailedPkg3: DetailedUpdateInfo = {
+	type: "plugin",
+	name: "@cortexkit/opencode-magic-context",
+	current: "0.18.0",
+	versions: [matureVer2, matureVer1], // all mature, sorted desc
+};
+
+describe("selectVersions", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockedIsCancel.mockReturnValue(false);
+	});
+
+	it("should present 3 options when at least one package has a mature version", async () => {
+		mockedSelect.mockResolvedValue("mature");
+
+		await selectVersions([detailedPkg1, detailedPkg2]);
+
+		expect(mockedSelect).toHaveBeenCalledTimes(1);
+		const callArgs = mockedSelect.mock.calls[0][0];
+		expect(callArgs.options).toHaveLength(3);
+		const values = callArgs.options.map((o: { value: string }) => o.value);
+		expect(values).toContain("mature");
+		expect(values).toContain("all");
+		expect(values).toContain("select");
+	});
+
+	it("should skip mature-only option when no package has a mature version", async () => {
+		mockedSelect.mockResolvedValue("all");
+
+		await selectVersions([detailedPkg2]);
+
+		const callArgs = mockedSelect.mock.calls[0][0];
+		const values = callArgs.options.map((o: { value: string }) => o.value);
+		expect(values).not.toContain("mature");
+		expect(values).toContain("all");
+		expect(values).toContain("select");
+	});
+
+	it("'mature' returns newest mature version per package", async () => {
+		mockedSelect.mockResolvedValue("mature");
+
+		const result = await selectVersions([detailedPkg1, detailedPkg2, detailedPkg3]);
+
+		expect(Array.isArray(result)).toBe(true);
+		const arr = result as typeof result extends "cancel" ? never : typeof result;
+		expect(arr).toHaveLength(2);
+		expect(arr[0].name).toBe("oh-my-openagent");
+		expect(arr[0].selectedVersion).toEqual(matureVer2);
+		expect(arr[1].name).toBe("@cortexkit/opencode-magic-context");
+		expect(arr[1].selectedVersion).toEqual(matureVer2);
+	});
+
+	it("'all' returns newest mature or latest version per package", async () => {
+		mockedSelect.mockResolvedValue("all");
+
+		const result = await selectVersions([detailedPkg1, detailedPkg2, detailedPkg3]);
+
+		expect(Array.isArray(result)).toBe(true);
+		const arr = result as typeof result extends "cancel" ? never : typeof result;
+		expect(arr).toHaveLength(3);
+
+		// pkg1 has mature versions → newestMature (2.0.0)
+		const pkg1 = arr.find((r) => r.name === "oh-my-openagent");
+		expect(pkg1?.selectedVersion).toEqual(matureVer2);
+
+		// pkg2 has no mature → latest (versions[0] = 3.0.0)
+		const pkg2 = arr.find((r) => r.name === "opencode");
+		expect(pkg2?.selectedVersion).toEqual(immatureVer3);
+
+		// pkg3 has mature → newestMature (2.0.0)
+		const pkg3 = arr.find((r) => r.name === "@cortexkit/opencode-magic-context");
+		expect(pkg3?.selectedVersion).toEqual(matureVer2);
+	});
+
+	it("two-step select returns one version per selected package", async () => {
+		mockedSelect
+			.mockResolvedValueOnce("select")
+			.mockResolvedValueOnce(matureVer1);
+		mockedMultiselect.mockResolvedValue(["oh-my-openagent"]);
+
+		const result = await selectVersions([detailedPkg1, detailedPkg2]);
+
+		expect(Array.isArray(result)).toBe(true);
+		const arr = result as typeof result extends "cancel" ? never : typeof result;
+		expect(arr).toHaveLength(1);
+		expect(arr[0].name).toBe("oh-my-openagent");
+		expect(arr[0].type).toBe("plugin");
+		expect(arr[0].current).toBe("4.0.0");
+		expect(arr[0].selectedVersion).toEqual(matureVer1);
+
+		// Verify multiselect was called with package options
+		expect(mockedMultiselect).toHaveBeenCalledTimes(1);
+		const multiArgs = mockedMultiselect.mock.calls[0][0];
+		expect(multiArgs.options).toHaveLength(2);
+		expect(multiArgs.options[0].value).toBe("oh-my-openagent");
+		expect(multiArgs.options[1].value).toBe("opencode");
+	});
+
+	it("version options show maturity indicator and age", async () => {
+		mockedSelect
+			.mockResolvedValueOnce("select")
+			.mockResolvedValueOnce(matureVer1);
+		mockedMultiselect.mockResolvedValue(["oh-my-openagent"]);
+
+		await selectVersions([detailedPkg1]);
+
+		// Second select call is for version selection
+		const versionSelectArgs = mockedSelect.mock.calls[1][0];
+		// Only newest mature + immature shown (intermediate mature filtered out)
+		expect(versionSelectArgs.options).toHaveLength(2);
+
+		// immatureVer3 (3.0.0, 1 day old) → immature, shows remaining
+		const immatureOption = versionSelectArgs.options.find(
+			(o: { value: VersionInfo }) => o.value === immatureVer3,
+		);
+		expect(immatureOption?.label).toContain("remaining");
+		expect(immatureOption?.label).toContain("⏳ waiting");
+
+		// matureVer2 (2.0.0, 5 days old) → newest mature, shows age
+		const matureOption = versionSelectArgs.options.find(
+			(o: { value: VersionInfo }) => o.value === matureVer2,
+		);
+		expect(matureOption?.label).toContain("old");
+		expect(matureOption?.label).toContain("✓ ready");
+	});
+
+	it("empty package selection returns empty array", async () => {
+		mockedSelect.mockResolvedValueOnce("select");
+		mockedMultiselect.mockResolvedValue([]);
+
+		const result = await selectVersions([detailedPkg1]);
+
+		expect(result).toEqual([]);
+	});
+
+	it("should return 'cancel' when user cancels the initial selection", async () => {
+		mockedIsCancel.mockReturnValue(true);
+		mockedSelect.mockResolvedValue(Symbol("cancel"));
+
+		const result = await selectVersions([detailedPkg1]);
+
+		expect(result).toBe("cancel");
+	});
+
+	it("should return 'cancel' when user cancels package selection", async () => {
+		mockedSelect.mockResolvedValueOnce("select");
+		mockedIsCancel
+			.mockReturnValueOnce(false) // not cancelled on top-level select
+			.mockReturnValueOnce(true); // cancelled on multiselect
+		mockedMultiselect.mockResolvedValue(Symbol("cancel"));
+
+		const result = await selectVersions([detailedPkg1]);
+
+		expect(result).toBe("cancel");
+	});
+
+	it("should return 'cancel' when user cancels version selection", async () => {
+		mockedSelect
+			.mockResolvedValueOnce("select")
+			.mockResolvedValueOnce(Symbol("cancel"));
+		mockedMultiselect.mockResolvedValue(["oh-my-openagent"]);
+		mockedIsCancel
+			.mockReturnValueOnce(false) // top-level select
+			.mockReturnValueOnce(false) // multiselect
+			.mockReturnValueOnce(true); // version select
+
+		const result = await selectVersions([detailedPkg1]);
+
+		expect(result).toBe("cancel");
+	});
+
+	it("does not show intermediate mature versions in individual select", async () => {
+		// detailedPkg1 has versions: [immatureVer3 (3.0.0), matureVer2 (2.0.0), matureVer1 (1.0.0)]
+		// Individual select should only show newest mature (matureVer2) + immature (immatureVer3)
+		// It should NOT show matureVer1 (intermediate mature)
+		mockedSelect
+			.mockResolvedValueOnce("select")
+			.mockResolvedValueOnce(matureVer2);
+		mockedMultiselect.mockResolvedValue(["oh-my-openagent"]);
+
+		await selectVersions([detailedPkg1]);
+
+		// Second select call is for version selection
+		const versionSelectArgs = mockedSelect.mock.calls[1][0];
+		const optionValues = versionSelectArgs.options.map(
+			(o: { value: VersionInfo }) => o.value,
+		);
+
+		// Should contain newest mature (matureVer2) and immature (immatureVer3)
+		expect(optionValues).toContain(matureVer2);
+		expect(optionValues).toContain(immatureVer3);
+
+		// Should NOT contain intermediate mature (matureVer1)
+		expect(optionValues).not.toContain(matureVer1);
+
+		// Should have exactly 2 options
+		expect(optionValues).toHaveLength(2);
 	});
 });

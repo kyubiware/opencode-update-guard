@@ -6,7 +6,7 @@ import {
 	getPublishedTimesAsync,
 	readJsonc,
 } from "./helpers.js";
-import type { UpdateInfo } from "./types.js";
+import type { DetailedUpdateInfo, UpdateInfo, VersionInfo } from "./types.js";
 
 function semverGt(a: string, b: string): boolean {
 	const aParts = a.split(".");
@@ -116,6 +116,82 @@ export async function checkForUpdates(): Promise<UpdateInfo[]> {
 				current,
 				latest: pluginUpdate.version,
 				ageSeconds: pluginUpdate.ageSeconds,
+			});
+		}
+	}
+
+	return updates;
+}
+
+async function findAllUpdates(
+	pkg: string,
+	currentVersion: string,
+	nowEpoch: number,
+): Promise<VersionInfo[]> {
+	const times = await getPublishedTimesAsync(pkg);
+	if (!times) return [];
+
+	const newerVersions = Object.entries(times)
+		.filter(([version]) => semverGt(version, currentVersion))
+		.map(([version, epoch]) => ({
+			version,
+			ageSeconds: nowEpoch - epoch,
+		}));
+
+	if (newerVersions.length === 0) return [];
+
+	// Sort by semver descending (newest first)
+	newerVersions.sort((a, b) => {
+		if (semverGt(a.version, b.version)) return -1;
+		if (semverGt(b.version, a.version)) return 1;
+		return 0;
+	});
+
+	return newerVersions;
+}
+
+export async function checkAllUpdates(): Promise<DetailedUpdateInfo[]> {
+	const updates: DetailedUpdateInfo[] = [];
+	const nowEpoch = Math.floor(Date.now() / 1000);
+
+	// 1. Check OpenCode CLI
+	const currentCli = await execQuietAsync("opencode --version");
+	if (currentCli) {
+		const cliVersions = await findAllUpdates(
+			"opencode-ai",
+			currentCli,
+			nowEpoch,
+		);
+		if (cliVersions.length > 0) {
+			updates.push({
+				type: "cli",
+				name: "opencode",
+				current: currentCli,
+				versions: cliVersions,
+			});
+		}
+	}
+
+	// 2. Check opencode.json plugins (global config, not project dir)
+	const globalConfigDir = getConfigDir();
+	let configPath = path.join(globalConfigDir, "opencode.json");
+	if (!fs.existsSync(configPath)) {
+		configPath = path.join(globalConfigDir, "opencode.jsonc");
+	}
+	const openCodeConfig = readJsonc(configPath);
+	const plugins = (openCodeConfig?.plugin ?? []) as string[];
+
+	for (const pluginRef of plugins) {
+		const match = pluginRef.match(/^(@?[^@]+)@(.+)$/);
+		if (!match) continue;
+		const [, name, current] = match;
+		const pluginVersions = await findAllUpdates(name, current, nowEpoch);
+		if (pluginVersions.length > 0) {
+			updates.push({
+				type: "plugin",
+				name,
+				current,
+				versions: pluginVersions,
 			});
 		}
 	}

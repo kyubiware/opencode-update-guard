@@ -104,11 +104,9 @@ describe("installUpdates (TDD: spinner lifecycle)", () => {
 
 		const updates = [
 			{
-				type: "plugin" as const,
 				name: "oh-my-openagent",
-				current: "4.0.0",
-				latest: "4.1.2",
-				ageSeconds: 86400 * 4,
+				version: "4.1.2",
+				type: "plugin" as const,
 			},
 		];
 
@@ -137,11 +135,9 @@ describe("installUpdates (TDD: spinner lifecycle)", () => {
 
 		const updates = [
 			{
-				type: "plugin" as const,
 				name: "oh-my-openagent",
-				current: "4.0.0",
-				latest: "4.1.2",
-				ageSeconds: 86400 * 4,
+				version: "4.1.2",
+				type: "plugin" as const,
 			},
 		];
 
