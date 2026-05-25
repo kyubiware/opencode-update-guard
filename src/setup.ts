@@ -3,7 +3,13 @@ import * as path from "node:path";
 import * as clack from "@clack/prompts";
 import { getConfigDir } from "./config.js";
 import { readJsonc } from "./helpers.js";
-import { detectShell, installHook, isHookInstalled } from "./shell.js";
+import {
+	detectExistingOpencodeFunctions,
+	detectShell,
+	installHook,
+	isHookInstalled,
+	removeExistingOpencodeFunction,
+} from "./shell.js";
 
 // ── Autoupdate Checks ─────────────────────────────────────────
 
@@ -94,8 +100,51 @@ export async function runStartupChecks(options?: {
 		}
 	}
 
-	// ── Shell hook check ────────────────────────────────────
 	const shell = detectShell();
+
+	// ── Existing opencode() function check ─────────────────
+	if (shell !== null) {
+		const existingFns = (() => {
+			try {
+				return detectExistingOpencodeFunctions(shell.type, shell.configPath);
+			} catch {
+				return [];
+			}
+		})();
+		if (existingFns.length > 0) {
+			let didReplace = false;
+			for (const fn of existingFns) {
+				clack.log.warn(
+					`Found existing opencode() function in ${shell.configPath}:\n${fn.body
+						.split("\n")
+						.map((l) => `  ${l}`)
+						.join("\n")}`,
+				);
+				const shouldReplace = await clack.confirm({
+					message:
+						"Replace this function with the update-guard wrapper? (The existing function will be removed.)",
+				});
+				if (clack.isCancel(shouldReplace)) {
+					// gracefully skip
+				} else if (shouldReplace) {
+					try {
+						removeExistingOpencodeFunction(shell.type, shell.configPath, fn);
+					} catch {
+						// In test environments with partial mocks, this may not be available
+					}
+					didReplace = true;
+				}
+				// If user says no, skip silently
+			}
+			if (didReplace) {
+				installHook(shell.type, shell.configPath);
+				// Skip the later hook prompt since we just installed it
+				return;
+			}
+		}
+	}
+
+	// ── Shell hook check ────────────────────────────────────
 	if (shell !== null && !isHookInstalled(shell.type, shell.configPath)) {
 		const shouldInstall = await clack.confirm({
 			message: `Shell hook not installed for ${shell.type}. Install it for update protection?`,

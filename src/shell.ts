@@ -8,6 +8,12 @@ export interface ShellInfo {
 	configPath: string;
 }
 
+export interface ExistingFunction {
+	startIndex: number;
+	endIndex: number;
+	body: string;
+}
+
 const SHELL_MARKER = "# opencode-update-guard pre-launch wrapper";
 
 const SHELL_CONFIG_MAP: Record<
@@ -63,6 +69,103 @@ export function isHookInstalled(
 	return content.includes(SHELL_MARKER);
 }
 
+export function detectExistingOpencodeFunctions(
+	shellType: "bash" | "zsh" | "fish",
+	configPath: string,
+): ExistingFunction[] {
+	if (!fs.existsSync(configPath)) return [];
+
+	const content = fs.readFileSync(configPath, "utf-8");
+	const lines = content.split("\n");
+	const functions: ExistingFunction[] = [];
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+
+		if (shellType === "fish") {
+			if (!/^function\s+opencode\b/.test(line)) continue;
+
+			const startIndex = i;
+			let endIndex = i;
+			for (let j = i; j < lines.length; j++) {
+				if (lines[j].trim() === "end") {
+					endIndex = j;
+					break;
+				}
+			}
+
+			if (endIndex === startIndex) continue;
+
+			const body = lines.slice(startIndex, endIndex + 1).join("\n");
+			if (body.includes(SHELL_MARKER)) continue;
+			if (startIndex > 0 && lines[startIndex - 1].includes(SHELL_MARKER))
+				continue;
+
+			functions.push({ startIndex, endIndex, body });
+			i = endIndex;
+		} else {
+			if (!/^opencode\s*\(\)\s*\{/.test(line)) continue;
+
+			const startIndex = i;
+			let braceCount = 0;
+			let endIndex = i;
+
+			for (let j = i; j < lines.length; j++) {
+				for (const char of lines[j]) {
+					if (char === "{") braceCount++;
+					else if (char === "}") braceCount--;
+				}
+				if (braceCount === 0) {
+					endIndex = j;
+					break;
+				}
+			}
+
+			const body = lines.slice(startIndex, endIndex + 1).join("\n");
+			if (body.includes(SHELL_MARKER)) continue;
+			if (startIndex > 0 && lines[startIndex - 1].includes(SHELL_MARKER))
+				continue;
+
+			functions.push({ startIndex, endIndex, body });
+			i = endIndex;
+		}
+	}
+
+	return functions;
+}
+
+export function removeExistingOpencodeFunction(
+	_shellType: "bash" | "zsh" | "fish",
+	configPath: string,
+	existingFn: ExistingFunction,
+): void {
+	if (!fs.existsSync(configPath)) return;
+
+	const content = fs.readFileSync(configPath, "utf-8");
+	const lines = content.split("\n");
+
+	let startIndex = existingFn.startIndex;
+	let endIndex = existingFn.endIndex;
+
+	if (endIndex + 1 < lines.length && lines[endIndex + 1].trim() === "") {
+		endIndex++;
+	}
+
+	if (startIndex > 0) {
+		const prevLine = lines[startIndex - 1].trim();
+		if (prevLine === "" || prevLine.startsWith("#")) {
+			startIndex--;
+		}
+	}
+
+	const newLines = [
+		...lines.slice(0, startIndex),
+		...lines.slice(endIndex + 1),
+	];
+
+	fs.writeFileSync(configPath, newLines.join("\n"));
+}
+
 function getHookContent(shellType: "bash" | "zsh" | "fish"): string {
 	const lines: string[] = [SHELL_MARKER];
 	if (shellType === "fish") {
@@ -80,7 +183,14 @@ function getHookContent(shellType: "bash" | "zsh" | "fish"): string {
 export function installHook(
 	shellType: "bash" | "zsh" | "fish",
 	configPath: string,
+	options?: { removeExisting?: ExistingFunction[] },
 ): void {
+	if (options?.removeExisting) {
+		for (const fn of options.removeExisting) {
+			removeExistingOpencodeFunction(shellType, configPath, fn);
+		}
+	}
+
 	const hook = getHookContent(shellType);
 
 	if (fs.existsSync(configPath)) {
