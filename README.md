@@ -95,6 +95,40 @@ CLI and plugin updates are installed via `npm install -g`. Plugin versions are a
 └  2 package(s) updated
 ```
 
+## Shell wrapper (automatic pre-launch checks)
+
+After installing, run `opencode-update` once. It auto-detects whether autoupdate is disabled and whether the shell wrapper is configured, prompting you to set up either if needed.
+
+Once configured, every `opencode` invocation runs the update check first:
+- **No mature updates found**: launches opencode silently
+- **Mature updates available**: shows the interactive update selector, then launches opencode
+
+The wrapper is a shell function:
+
+**Bash / Zsh** (`~/.bashrc` or `~/.zshrc`):
+```bash
+# opencode-update-guard pre-launch wrapper
+opencode() {
+    opencode-update --pre-launch "$@"
+}
+```
+
+**Fish** (`~/.config/fish/config.fish`):
+```fish
+# opencode-update-guard pre-launch wrapper
+function opencode
+    opencode-update --pre-launch $argv
+end
+```
+
+### Uninstalling the wrapper
+
+```bash
+opencode-update --uninstall-hook
+```
+
+Or manually: remove the block between the `# opencode-update-guard` marker and the closing `}` (bash/zsh) or `end` (fish) from your shell config.
+
 ## Configuration
 
 Create or edit `~/.config/opencode/update-guard.jsonc`:

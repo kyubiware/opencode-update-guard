@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { exec } from "node:child_process";
+import { exec, spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as clack from "@clack/prompts";
@@ -11,6 +11,8 @@ import {
 	loadConfig,
 } from "./config.js";
 import { formatAge } from "./helpers.js";
+import { runStartupChecks } from "./setup.js";
+import { detectShell, isHookInstalled, uninstallHook } from "./shell.js";
 import type { DetailedUpdateInfo, UpdateInfo, VersionInfo } from "./types.js";
 import { checkAllUpdates } from "./update-check.js";
 
@@ -294,7 +296,10 @@ export async function selectVersions(updates: DetailedUpdateInfo[]): Promise<
 }
 
 const args = process.argv.slice(2);
+const flagPreLaunch = args.includes("--pre-launch");
+const flagUninstallHook = args.includes("--uninstall-hook");
 const flagAll = args.includes("--all") || args.includes("-a");
+const hasFlags = flagPreLaunch || flagUninstallHook || flagAll;
 
 /**
  * Update the version reference for a plugin in the global opencode config.
@@ -393,7 +398,89 @@ export async function installUpdates(toInstall: InstallItem[]): Promise<void> {
 	clack.outro("Done! Restart opencode to use updated packages.");
 }
 
-async function main() {
+function launchOpencode(cliArgs: string[]): void {
+	const child = spawn("opencode", cliArgs, { stdio: "inherit" });
+	child.on("exit", (code) => {
+		process.exit(code ?? 0);
+	});
+}
+
+export async function selectVersionsPreLaunch(
+	updateCount: number,
+): Promise<"install" | "skip" | "cancel"> {
+	const choice = await clack.select<"install" | "skip">({
+		message: `${updateCount} mature update(s) available. What would you like to do?`,
+		options: [
+			{
+				value: "install",
+				label: "Install mature updates and launch opencode",
+				hint: "recommended",
+			},
+			{ value: "skip", label: "Skip updates and launch opencode" },
+		],
+	});
+	if (clack.isCancel(choice)) return "cancel";
+	return choice;
+}
+
+export async function runPreLaunch(opencodeArgs: string[]): Promise<void> {
+	try {
+		loadConfig();
+		const detailedUpdates = await checkAllUpdates();
+		const mature = detailedUpdates.filter(
+			(u) => partitionVersions(u.versions).newestMature !== null,
+		);
+		if (mature.length === 0) {
+			launchOpencode(opencodeArgs);
+			return;
+		}
+		const choice = await selectVersionsPreLaunch(mature.length);
+		if (choice === "cancel") {
+			process.exit(1);
+			return;
+		}
+		if (choice === "install") {
+			const toInstall: InstallItem[] = mature.map((pkg) => {
+				const { newestMature } = partitionVersions(pkg.versions);
+				if (!newestMature) {
+					throw new Error("Unexpected null newestMature");
+				}
+				return {
+					name: pkg.name,
+					version: newestMature.version,
+					type: pkg.type,
+				};
+			});
+			await installUpdates(toInstall);
+		}
+		launchOpencode(opencodeArgs);
+	} catch (err) {
+		clack.log.warn(`Update check failed: ${err}. Launching opencode anyway.`);
+		launchOpencode(opencodeArgs);
+	}
+}
+
+export async function handleUninstallHook(): Promise<void> {
+	const shell = detectShell();
+	if (!shell) {
+		clack.log.warn("Unsupported shell detected. Cannot uninstall hook.");
+		return;
+	}
+	if (!isHookInstalled(shell.type, shell.configPath)) {
+		clack.log.info("Shell wrapper not installed. Nothing to remove.");
+		return;
+	}
+	uninstallHook(shell.type, shell.configPath);
+	clack.log.success(`Removed opencode wrapper from ${shell.configPath}`);
+}
+
+export async function main(options?: {
+	skipStartupChecks?: boolean;
+}): Promise<void> {
+	if (!hasFlags && !options?.skipStartupChecks && process.stdin.isTTY) {
+		await runStartupChecks();
+	}
+
 	clack.intro("Update Guard");
 
 	const s = clack.spinner();
@@ -534,9 +621,22 @@ if (import.meta.url.startsWith("file:")) {
 	const modulePath = new URL(import.meta.url).pathname;
 	const argvResolved = fs.realpathSync(process.argv[1]);
 	if (argvResolved === modulePath) {
-		main().catch((err) => {
-			clack.log.error(`Unexpected error: ${err}`);
-			process.exit(1);
-		});
+		if (flagUninstallHook) {
+			handleUninstallHook().catch((err) => {
+				clack.log.error(`Unexpected error: ${err}`);
+				process.exit(1);
+			});
+		} else if (flagPreLaunch) {
+			const opencodeArgs = args.filter((a) => a !== "--pre-launch");
+			runPreLaunch(opencodeArgs).catch((err) => {
+				clack.log.error(`Unexpected error: ${err}`);
+				process.exit(1);
+			});
+		} else {
+			main().catch((err) => {
+				clack.log.error(`Unexpected error: ${err}`);
+				process.exit(1);
+			});
+		}
 	}
 }
