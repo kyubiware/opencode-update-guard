@@ -5,5 +5,5 @@ export default {
     () => "tsc",
   ],
   "src/config.ts": () => "node bin/generate-schema.cjs",
-  "src/**/*.{js,ts}": "vitest run",
+  "src/**/*.{js,ts}": () => "vitest run",
 }
