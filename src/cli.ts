@@ -431,6 +431,22 @@ export async function runPreLaunch(opencodeArgs: string[]): Promise<void> {
 			(u) => partitionVersions(u.versions).newestMature !== null,
 		);
 		if (mature.length === 0) {
+			if (detailedUpdates.length > 0) {
+				// Show brief note for immature-only updates
+				const lines: string[] = [];
+				for (const pkg of detailedUpdates) {
+					const { immature } = partitionVersions(pkg.versions);
+					if (immature.length === 0) continue;
+					const nearest = immature[0];
+					const remaining = formatAge(getMaturitySecs() - nearest.ageSeconds);
+					lines.push(
+						`    • ${pkg.name} ${pkg.current} → ${nearest.version} (${remaining} remaining)`,
+					);
+				}
+				clack.log.info(
+					`${detailedUpdates.length} update(s) pending maturity:\n${lines.join("\n")}`,
+				);
+			}
 			launchOpencode(opencodeArgs);
 			return;
 		}
