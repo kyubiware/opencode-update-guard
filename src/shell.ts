@@ -69,6 +69,74 @@ export function isHookInstalled(
 	return content.includes(SHELL_MARKER);
 }
 
+/** Check whether a function at the given line range is an update-guard wrapper. */
+function isGuardWrapper(
+	lines: string[],
+	startIndex: number,
+	body: string,
+): boolean {
+	if (body.includes(SHELL_MARKER)) return true;
+	if (startIndex > 0 && lines[startIndex - 1].includes(SHELL_MARKER))
+		return true;
+	return false;
+}
+
+/** Find fish-style `function opencode … end` blocks that are NOT update-guard wrappers. */
+function findFishOpencodeFunctions(lines: string[]): ExistingFunction[] {
+	const functions: ExistingFunction[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (!/^function\s+opencode\b/.test(lines[i])) continue;
+
+		const startIndex = i;
+		let endIndex = i;
+		for (let j = i; j < lines.length; j++) {
+			if (lines[j].trim() === "end") {
+				endIndex = j;
+				break;
+			}
+		}
+
+		if (endIndex === startIndex) continue;
+
+		const body = lines.slice(startIndex, endIndex + 1).join("\n");
+		if (isGuardWrapper(lines, startIndex, body)) continue;
+
+		functions.push({ startIndex, endIndex, body });
+		i = endIndex;
+	}
+	return functions;
+}
+
+/** Find bash/zsh-style `opencode() { … }` blocks that are NOT update-guard wrappers. */
+function findBashZshOpencodeFunctions(lines: string[]): ExistingFunction[] {
+	const functions: ExistingFunction[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		if (!/^opencode\s*\(\)\s*\{/.test(lines[i])) continue;
+
+		const startIndex = i;
+		let braceCount = 0;
+		let endIndex = i;
+
+		for (let j = i; j < lines.length; j++) {
+			for (const char of lines[j]) {
+				if (char === "{") braceCount++;
+				else if (char === "}") braceCount--;
+			}
+			if (braceCount === 0) {
+				endIndex = j;
+				break;
+			}
+		}
+
+		const body = lines.slice(startIndex, endIndex + 1).join("\n");
+		if (isGuardWrapper(lines, startIndex, body)) continue;
+
+		functions.push({ startIndex, endIndex, body });
+		i = endIndex;
+	}
+	return functions;
+}
+
 export function detectExistingOpencodeFunctions(
 	shellType: "bash" | "zsh" | "fish",
 	configPath: string,
@@ -77,61 +145,11 @@ export function detectExistingOpencodeFunctions(
 
 	const content = fs.readFileSync(configPath, "utf-8");
 	const lines = content.split("\n");
-	const functions: ExistingFunction[] = [];
 
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-
-		if (shellType === "fish") {
-			if (!/^function\s+opencode\b/.test(line)) continue;
-
-			const startIndex = i;
-			let endIndex = i;
-			for (let j = i; j < lines.length; j++) {
-				if (lines[j].trim() === "end") {
-					endIndex = j;
-					break;
-				}
-			}
-
-			if (endIndex === startIndex) continue;
-
-			const body = lines.slice(startIndex, endIndex + 1).join("\n");
-			if (body.includes(SHELL_MARKER)) continue;
-			if (startIndex > 0 && lines[startIndex - 1].includes(SHELL_MARKER))
-				continue;
-
-			functions.push({ startIndex, endIndex, body });
-			i = endIndex;
-		} else {
-			if (!/^opencode\s*\(\)\s*\{/.test(line)) continue;
-
-			const startIndex = i;
-			let braceCount = 0;
-			let endIndex = i;
-
-			for (let j = i; j < lines.length; j++) {
-				for (const char of lines[j]) {
-					if (char === "{") braceCount++;
-					else if (char === "}") braceCount--;
-				}
-				if (braceCount === 0) {
-					endIndex = j;
-					break;
-				}
-			}
-
-			const body = lines.slice(startIndex, endIndex + 1).join("\n");
-			if (body.includes(SHELL_MARKER)) continue;
-			if (startIndex > 0 && lines[startIndex - 1].includes(SHELL_MARKER))
-				continue;
-
-			functions.push({ startIndex, endIndex, body });
-			i = endIndex;
-		}
+	if (shellType === "fish") {
+		return findFishOpencodeFunctions(lines);
 	}
-
-	return functions;
+	return findBashZshOpencodeFunctions(lines);
 }
 
 export function removeExistingOpencodeFunction(

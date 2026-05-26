@@ -69,6 +69,55 @@ export function disableAutoupdate(): void {
 // ── Startup Checks ───────────────────────────────────────────
 
 /**
+ * Check for existing opencode() shell functions and offer to replace them
+ * with the update-guard wrapper. Returns true if the hook was installed
+ * (replacing a conflicting function), false otherwise.
+ */
+async function handleConflictingFunctions(shell: {
+	type: "bash" | "zsh" | "fish";
+	configPath: string;
+}): Promise<boolean> {
+	let didReplace = false;
+
+	const existingFns = (() => {
+		try {
+			return detectExistingOpencodeFunctions(shell.type, shell.configPath);
+		} catch {
+			return [];
+		}
+	})();
+
+	for (const fn of existingFns) {
+		clack.log.warn(
+			`Found existing opencode() function in ${shell.configPath}:\n${fn.body
+				.split("\n")
+				.map((l) => `  ${l}`)
+				.join("\n")}`,
+		);
+		const shouldReplace = await clack.confirm({
+			message:
+				"Replace this function with the update-guard wrapper? (The existing function will be removed.)",
+		});
+		if (clack.isCancel(shouldReplace)) continue;
+
+		if (shouldReplace) {
+			try {
+				removeExistingOpencodeFunction(shell.type, shell.configPath, fn);
+			} catch {
+				// In test environments with partial mocks, this may not be available
+			}
+			didReplace = true;
+		}
+	}
+
+	if (didReplace) {
+		installHook(shell.type, shell.configPath);
+	}
+
+	return didReplace;
+}
+
+/**
  * Run interactive startup checks to guide the user through securing their
  * OpenCode setup.
  *
@@ -104,44 +153,8 @@ export async function runStartupChecks(options?: {
 
 	// ── Existing opencode() function check ─────────────────
 	if (shell !== null) {
-		const existingFns = (() => {
-			try {
-				return detectExistingOpencodeFunctions(shell.type, shell.configPath);
-			} catch {
-				return [];
-			}
-		})();
-		if (existingFns.length > 0) {
-			let didReplace = false;
-			for (const fn of existingFns) {
-				clack.log.warn(
-					`Found existing opencode() function in ${shell.configPath}:\n${fn.body
-						.split("\n")
-						.map((l) => `  ${l}`)
-						.join("\n")}`,
-				);
-				const shouldReplace = await clack.confirm({
-					message:
-						"Replace this function with the update-guard wrapper? (The existing function will be removed.)",
-				});
-				if (clack.isCancel(shouldReplace)) {
-					// gracefully skip
-				} else if (shouldReplace) {
-					try {
-						removeExistingOpencodeFunction(shell.type, shell.configPath, fn);
-					} catch {
-						// In test environments with partial mocks, this may not be available
-					}
-					didReplace = true;
-				}
-				// If user says no, skip silently
-			}
-			if (didReplace) {
-				installHook(shell.type, shell.configPath);
-				// Skip the later hook prompt since we just installed it
-				return;
-			}
-		}
+		const didReplace = await handleConflictingFunctions(shell);
+		if (didReplace) return; // hook already installed via replacement
 	}
 
 	// ── Shell hook check ────────────────────────────────────
