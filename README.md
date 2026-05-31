@@ -1,5 +1,7 @@
 # opencode-update-guard
 
+[![npm version](https://img.shields.io/npm/v/opencode-update-guard)](https://www.npmjs.com/package/opencode-update-guard)
+
 An [OpenCode](https://opencode.ai) plugin that replaces automatic npm updates with a maturity-gated system. Instead of pulling the latest version immediately, Update Guard waits until a package has been published long enough to be considered safe.
 
 ## Why?
