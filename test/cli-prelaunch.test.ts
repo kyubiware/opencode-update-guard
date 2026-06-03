@@ -160,11 +160,11 @@ describe("runPreLaunch", () => {
 		exitSpy.mockRestore();
 	});
 
-	it("should spawn opencode with forwarded args when no updates", async () => {
-		mockedCheckAllUpdates.mockResolvedValue([]);
-
+	it("should skip update check and spawn opencode immediately when args are passed", async () => {
 		await runPreLaunch(["-v"]);
 
+		// No update check should run — just launch opencode directly
+		expect(mockedCheckAllUpdates).not.toHaveBeenCalled();
 		expect(mockedSpawn).toHaveBeenCalledWith("opencode", ["-v"], {
 			stdio: "inherit",
 		});
@@ -222,11 +222,11 @@ describe("runPreLaunch", () => {
 		});
 	});
 
-	it("should forward remaining CLI arguments to opencode spawn", async () => {
-		mockedCheckAllUpdates.mockResolvedValue([]);
-
+	it("should skip update check and forward remaining CLI arguments to opencode spawn", async () => {
 		await runPreLaunch(["--model", "gemini", "--debug"]);
 
+		// No update check should run — just launch opencode directly
+		expect(mockedCheckAllUpdates).not.toHaveBeenCalled();
 		expect(mockedSpawn).toHaveBeenCalledWith("opencode", ["--model", "gemini", "--debug"], {
 			stdio: "inherit",
 		});

@@ -209,6 +209,13 @@ export async function main(options?: {
 // ── Pre-Launch ─────────────────────────────────────────────────
 
 export async function runPreLaunch(opencodeArgs: string[]): Promise<void> {
+	// Skip update check when CLI subcommands are being run (e.g. "opencode auth logout").
+	// Only run the full check for interactive TUI sessions (no args).
+	if (opencodeArgs.length > 0) {
+		launchOpencode(opencodeArgs);
+		return;
+	}
+
 	try {
 		loadConfig();
 		const detailedUpdates = await checkAllUpdates();
