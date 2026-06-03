@@ -283,10 +283,22 @@ export async function selectVersions(updates: DetailedUpdateInfo[]): Promise<
 }
 
 export async function selectVersionsPreLaunch(
-	updateCount: number,
+	matureUpdates: {
+		name: string;
+		current: string;
+		selectedVersion: { version: string; ageSeconds: number };
+	}[],
 ): Promise<"install" | "skip" | "cancel"> {
+	const count = matureUpdates.length;
+	const summary = matureUpdates
+		.map(
+			(u) =>
+				`${u.name} ${u.current} → ${u.selectedVersion.version} (${formatAge(u.selectedVersion.ageSeconds)} old)`,
+		)
+		.join("\n");
+
 	const choice = await clack.select<"install" | "skip">({
-		message: `${updateCount} mature update(s) available. What would you like to do?`,
+		message: `${count} mature update(s) available:\n${summary}\nWhat would you like to do?`,
 		options: [
 			{
 				value: "install",

@@ -242,7 +242,18 @@ export async function runPreLaunch(opencodeArgs: string[]): Promise<void> {
 			launchOpencode(opencodeArgs);
 			return;
 		}
-		const choice = await selectVersionsPreLaunch(mature.length);
+		const matureItems = mature.map((pkg) => {
+			const { newestMature } = partitionVersions(pkg.versions);
+			if (!newestMature) {
+				throw new Error("Unexpected null newestMature");
+			}
+			return {
+				name: pkg.name,
+				current: pkg.current,
+				selectedVersion: newestMature,
+			};
+		});
+		const choice = await selectVersionsPreLaunch(matureItems);
 		if (choice === "cancel") {
 			process.exit(1);
 			return;

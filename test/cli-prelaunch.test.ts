@@ -144,6 +144,18 @@ const detailedUpdate: DetailedUpdateInfo = {
 	versions: [immatureVersion, matureVersion],
 };
 
+const matureUpdateItem = {
+	name: "oh-my-openagent",
+	current: "4.0.0",
+	selectedVersion: matureVersion,
+};
+
+const matureUpdateItem2 = {
+	name: "some-other-pkg",
+	current: "1.0.0",
+	selectedVersion: { version: "1.1.0", ageSeconds: 86400 * 4 },
+};
+
 // ── Tests ────────────────────────────────────────────────────────
 describe("runPreLaunch", () => {
 	let exitSpy: ReturnType<typeof vi.spyOn>;
@@ -255,7 +267,7 @@ describe("selectVersionsPreLaunch", () => {
 	it("should present skip, install, and cancel options", async () => {
 		mockedSelect.mockResolvedValue("skip");
 
-		const result = await selectVersionsPreLaunch(1);
+		const result = await selectVersionsPreLaunch([matureUpdateItem]);
 
 		expect(mockedSelect).toHaveBeenCalledTimes(1);
 		const callArgs = mockedSelect.mock.calls[0][0];
@@ -270,7 +282,7 @@ describe("selectVersionsPreLaunch", () => {
 	it("should return 'skip' when user chooses to skip", async () => {
 		mockedSelect.mockResolvedValue("skip");
 
-		const result = await selectVersionsPreLaunch(1);
+		const result = await selectVersionsPreLaunch([matureUpdateItem]);
 
 		expect(result).toBe("skip");
 	});
@@ -278,7 +290,7 @@ describe("selectVersionsPreLaunch", () => {
 	it("should return 'install' when user chooses to install", async () => {
 		mockedSelect.mockResolvedValue("install");
 
-		const result = await selectVersionsPreLaunch(2);
+		const result = await selectVersionsPreLaunch([matureUpdateItem, matureUpdateItem2]);
 
 		expect(result).toBe("install");
 	});
