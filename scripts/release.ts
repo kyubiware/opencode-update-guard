@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { execSync } from "node:child_process";
+import * as clack from "@clack/prompts";
 
 const validBumps = ["patch", "minor", "major"] as const;
 type BumpType = (typeof validBumps)[number];
@@ -11,10 +12,15 @@ const currentVersion = await Bun.file("package.json")
 
 console.log(`Current version: v${currentVersion}`);
 
-const bump = await Bun.select({
+const bump = await clack.select<BumpType>({
 	message: "Select version bump:",
-	choices: validBumps,
+	options: validBumps.map((b) => ({ value: b, label: b })),
 });
+
+if (clack.isCancel(bump)) {
+	clack.cancel("Cancelled");
+	process.exit(0);
+}
 
 const dirty = execSync("git status --porcelain").toString().trim();
 if (dirty) {
