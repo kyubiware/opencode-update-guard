@@ -6,16 +6,15 @@ A CLI tool and shell wrapper that gates npm updates behind a configurable maturi
 
 ## Why?
 
-OpenCode auto-updates by default. So do its plugins. When a malicious package hits npm, an auto-updater can pull it in before anyone notices. Supply chain attacks on npm are not theoretical. They are a recurring, demonstrated risk.
+OpenCode auto-updates by default. When a malicious package hits npm, an auto-updater can pull it in before anyone notices. Supply chain attacks on npm are not theoretical. They are a recurring, demonstrated risk.
 
 This tool replaces the auto-update flow with a **maturity cooldown**. New versions are tracked, but they are only offered for install once they have been live on npm long enough to be considered safe.
 
 ## How it works
 
-Update Guard checks two sources for available updates:
+Update Guard checks for available updates to:
 
 1. **OpenCode CLI** (`opencode-ai` on npm)
-2. **OpenCode plugins** (from the global `~/.config/opencode/opencode.json`)
 
 For each available update, it finds the **most recent version that is both newer than installed and past the maturity cooldown**. If the absolute latest is too fresh but an intermediate version is mature, that intermediate version is offered. If no mature version exists, the latest is reported as waiting.
 
@@ -70,28 +69,24 @@ Use `--all` or `-a` to bypass the menu and install everything directly (still co
 opencode-update --all
 ```
 
-CLI and plugin updates are installed via `npm install -g`. Plugin versions are also updated in `opencode.json`. After installation, the tool prompts you to restart OpenCode.
+Updates are installed via `npm install -g`. After installation, the tool prompts you to restart OpenCode.
 
 ```
 ┌  Update Guard
 │
-◆  Found 3 update(s)
+◆  Found 1 update(s)
 │
 │  Available Updates ───────────────────────────────────────────────────╮
 │                                                                       │
-│    3 update(s) ready to install:                                      │
+│    1 update(s) ready to install:                                      │
 │      • opencode 1.14.51 → 1.15.0 (5d 2h old)                         │
-│      • oh-my-openagent 4.0.0 → 4.1.2 (4d 8h old)                     │
-│      • @cortexkit/opencode-magic-context 0.18.0 → 0.20.0 (3d 19h old) │
 │                                                                       │
 ├───────────────────────────────────────────────────────────────────────╯
 │
 ◆  Select updates to install
-│  ○ opencode 1.14.51 → 1.15.0 (5d 2h old)
-│  ● oh-my-openagent 4.0.0 → 4.1.2 (4d 8h old)
-│  ● @cortexkit/opencode-magic-context 0.18.0 → 0.20.0 (3d 19h old)
+│  ● opencode 1.14.51 → 1.15.0 (5d 2h old)
 │
-└  2 package(s) updated
+└  1 package(s) updated
 ```
 
 ## Shell wrapper (automatic pre-launch checks)
