@@ -1,8 +1,7 @@
 {
   "name": "opencode-update-guard",
   "version": "0.3.6",
-  "description": "OpenCode plugin that checks for dependency updates with a maturity cooldown",
-  "main": "dist/index.js",
+  "description": "CLI tool that gates npm updates behind a configurable maturity cooldown",
   "type": "module",
   "scripts": {
     "build": "tsc",
@@ -23,12 +22,8 @@
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged"
   },
-  "peerDependencies": {
-    "@opencode-ai/plugin": ">=1.4.0"
-  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@opencode-ai/plugin": "^1.4.9",
     "@types/node": "22",
     "lint-staged": "^17.0.4",
     "simple-git-hooks": "^2.13.1",
@@ -56,7 +51,6 @@
   "homepage": "https://github.com/kyubiware/opencode-update-guard#readme",
   "keywords": [
     "opencode",
-    "opencode-plugin",
     "supply-chain",
     "security",
     "update",

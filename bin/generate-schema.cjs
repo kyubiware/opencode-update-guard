@@ -17,7 +17,7 @@ const schema = {
 	$id: "https://github.com/kyubiware/opencode-update-guard/update-guard.schema.json",
 	title: "Update Guard Configuration",
 	description:
-		"Configuration for the opencode-update-guard plugin. Place at ~/.config/opencode/update-guard.jsonc",
+		"Configuration for opencode-update-guard. Place at ~/.config/opencode/update-guard.jsonc",
 	type: "object",
 	properties: {
 		maturityDays: {
@@ -31,7 +31,13 @@ const schema = {
 		debug: {
 			type: "boolean",
 			description:
-				"Enable debug logging to troubleshoot plugin issues. Logs are written to $XDG_CACHE_HOME/opencode/update-guard-debug.log. View with: npm run logs",
+				"Enable debug logging to troubleshoot update guard issues. Logs are written to $XDG_CACHE_HOME/opencode/update-guard-debug.log. View with: npm run logs",
+			default: false,
+		},
+		autoupdateDismissed: {
+			type: "boolean",
+			description:
+				"When true, suppresses the autoupdate prompt at startup. Set automatically when you choose 'don't ask again' in the interactive prompt.",
 			default: false,
 		},
 	},
