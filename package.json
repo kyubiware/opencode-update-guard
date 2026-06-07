@@ -1,6 +1,6 @@
 {
   "name": "opencode-update-guard",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "description": "CLI tool that gates npm updates behind a configurable maturity cooldown",
   "type": "module",
   "scripts": {
