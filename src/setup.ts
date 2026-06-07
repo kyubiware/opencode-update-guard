@@ -1,7 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as clack from "@clack/prompts";
-import { getConfigDir } from "./config.js";
+import {
+	getConfigDir,
+	isAutoupdateDismissed,
+	markAutoupdateDismissed,
+} from "./config.js";
 import { readJsonc } from "./helpers.js";
 import {
 	detectExistingOpencodeFunctions,
@@ -138,14 +142,28 @@ export async function runStartupChecks(options?: {
 
 	// ── Autoupdate check ────────────────────────────────────
 	if (!checkAutoupdateDisabled()) {
-		const shouldDisable = await clack.confirm({
-			message:
-				"OpenCode auto-updates are enabled. Disable them for update safety?",
-		});
-		if (clack.isCancel(shouldDisable)) {
-			// gracefully skip — user cancelled
-		} else if (shouldDisable) {
-			disableAutoupdate();
+		if (isAutoupdateDismissed()) {
+			// user chose "don't ask again" — skip
+		} else {
+			const choice = await clack.select({
+				message:
+					"OpenCode auto-updates are enabled. What would you like to do?",
+				options: [
+					{ value: "disable", label: "Disable autoupdate (recommended)" },
+					{ value: "keep", label: "Keep autoupdate enabled" },
+					{
+						value: "dismiss",
+						label: "Keep autoupdate enabled and don't ask again",
+					},
+				],
+			});
+			if (clack.isCancel(choice)) {
+				// gracefully skip — user cancelled
+			} else if (choice === "disable") {
+				disableAutoupdate();
+			} else if (choice === "dismiss") {
+				markAutoupdateDismissed();
+			}
 		}
 	}
 

@@ -12,6 +12,8 @@ let maturityDays = DEFAULT_MATURITY_DAYS;
 let maturitySecs = maturityDays * 86400;
 let debugEnabled = false;
 
+let autoupdateDismissed = false;
+
 export function getMaturityDays(): number {
 	return maturityDays;
 }
@@ -52,6 +54,31 @@ export function loadConfig(): void {
 	} else {
 		debugEnabled = false;
 	}
+
+	const dismissedValue = raw?.autoupdateDismissed;
+	if (typeof dismissedValue === "boolean") {
+		autoupdateDismissed = dismissedValue;
+	} else {
+		autoupdateDismissed = false;
+	}
+}
+
+export function isAutoupdateDismissed(): boolean {
+	return autoupdateDismissed;
+}
+
+export function markAutoupdateDismissed(): void {
+	try {
+		const configPath = path.join(getConfigDir(), CONFIG_FILENAME);
+		const obj = readJsonc(configPath);
+		if (obj && typeof obj === "object") {
+			obj.autoupdateDismissed = true;
+			fs.writeFileSync(configPath, `${JSON.stringify(obj, null, 2)}\n`);
+			autoupdateDismissed = true;
+		}
+	} catch {
+		// non-critical — user can dismiss again later
+	}
 }
 
 export function ensureConfigFile(): void {
@@ -73,7 +100,7 @@ export function ensureConfigFile(): void {
   // chain attacks on newly published packages.
   "maturityDays": ${DEFAULT_MATURITY_DAYS},
 
-  // Enable debug logging to diagnose plugin issues.
+  // Enable debug logging to diagnose update guard issues.
   // Logs are written to $XDG_CACHE_HOME/opencode/update-guard-debug.log
   "debug": false
 }
