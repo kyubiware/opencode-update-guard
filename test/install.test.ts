@@ -1,8 +1,8 @@
 /**
- * Tests for bin/install.cjs — register() and unregister()
+ * Tests for bin/install.cjs — disabled autoupdate
  *
  * Runs the install script as a child process with a mocked CONFIG_DIR
- * and verifies autoupdate is set/cleared correctly in opencode.json.
+ * and verifies autoupdate is set correctly in opencode.json.
  */
 
 import fs from "node:fs";
@@ -33,30 +33,23 @@ function writeConfig(
 	);
 }
 
-function runInstall(dir: string, args: string = ""): void {
+function runInstall(dir: string): void {
 	const projectRoot = path.join(__dirname, "..");
 	const src = fs.readFileSync(
 		path.join(projectRoot, "bin", "install.cjs"),
 		"utf-8",
 	);
-	// Replace CONFIG_DIR
-	let patched = src.replace(
+	// Replace CONFIG_DIR to point to our temp dir
+	const patched = src.replace(
 		/const CONFIG_DIR\s*=.*$/m,
 		`const CONFIG_DIR = ${JSON.stringify(dir)}`,
 	);
-	// Replace the package.json read path (line 17 of install.cjs)
-	// Original: fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf-8"),
-	const pkgPath = JSON.stringify(path.join(projectRoot, "package.json"));
-	patched = patched.replace(
-		/path\.join\(__dirname,\s*"\.\.",\s*"package\.json"\)/,
-		pkgPath,
-	);
 	const tmpScript = path.join(dir, "_run_test.cjs");
 	fs.writeFileSync(tmpScript, patched);
-	execSync(`node ${tmpScript} ${args}`, { stdio: "pipe" });
+	execSync(`node ${tmpScript}`, { stdio: "pipe" });
 }
 
-describe("install.cjs register()", () => {
+describe("install.cjs", () => {
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "update-guard-test-"));
 	});
@@ -65,22 +58,18 @@ describe("install.cjs register()", () => {
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 
-	it("should set autoupdate to false when registering plugin for the first time", () => {
-		writeConfig(tmpDir, {});
+	it("should set autoupdate to false in existing config", () => {
+		writeConfig(tmpDir, { someField: "keep-me" });
 		runInstall(tmpDir);
 
 		const config = readConfig(tmpDir);
 		expect(config).toBeDefined();
 		expect(config!.autoupdate).toBe(false);
-		expect(config!.plugin).toBeDefined();
-		expect((config!.plugin as string[]).length).toBeGreaterThan(0);
+		expect(config!.someField).toBe("keep-me");
 	});
 
-	it("should set autoupdate to false when updating an existing plugin registration", () => {
-		writeConfig(tmpDir, {
-			plugin: ["opencode-update-guard@0.1.0"],
-			autoupdate: true,
-		});
+	it("should set autoupdate to false when config has autoupdate: true", () => {
+		writeConfig(tmpDir, { autoupdate: true });
 		runInstall(tmpDir);
 
 		const config = readConfig(tmpDir);
@@ -88,35 +77,18 @@ describe("install.cjs register()", () => {
 	});
 
 	it("should keep autoupdate:false if already false", () => {
-		writeConfig(tmpDir, {
-			plugin: [],
-			autoupdate: false,
-		});
+		writeConfig(tmpDir, { autoupdate: false });
 		runInstall(tmpDir);
 
 		const config = readConfig(tmpDir);
 		expect(config!.autoupdate).toBe(false);
 	});
-});
 
-describe("install.cjs unregister()", () => {
-	beforeEach(() => {
-		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "update-guard-test-"));
-	});
-
-	afterEach(() => {
-		fs.rmSync(tmpDir, { recursive: true, force: true });
-	});
-
-	it("should restore autoupdate to true when unregistering plugin", () => {
-		writeConfig(tmpDir, {
-			plugin: ["opencode-update-guard@0.1.2"],
-			autoupdate: false,
-		});
-		runInstall(tmpDir, "uninstall");
+	it("should create config file when none exists", () => {
+		runInstall(tmpDir);
 
 		const config = readConfig(tmpDir);
-		expect(config!.autoupdate).toBe(true);
-		expect(config!.plugin).toEqual([]);
+		expect(config).toBeDefined();
+		expect(config!.autoupdate).toBe(false);
 	});
 });

@@ -10,6 +10,7 @@ import { vi, describe, it, expect, beforeEach } from "vitest";
 
 vi.mock("@clack/prompts", () => ({
 	confirm: vi.fn(),
+	select: vi.fn(),
 	isCancel: vi.fn(() => false),
 	log: {
 		info: vi.fn(),
@@ -22,6 +23,8 @@ vi.mock("@clack/prompts", () => ({
 vi.mock("../src/config.js", () => ({
 	getConfigDir: vi.fn(() => "/mock/config/dir"),
 	loadConfig: vi.fn(),
+	isAutoupdateDismissed: vi.fn(() => false),
+	markAutoupdateDismissed: vi.fn(),
 }));
 
 vi.mock("../src/helpers.js", () => ({
@@ -52,6 +55,10 @@ import { readJsonc } from "../src/helpers.js";
 import { detectShell, isHookInstalled, installHook } from "../src/shell.js";
 import { writeFileSync, mkdirSync } from "node:fs";
 import {
+	isAutoupdateDismissed,
+	markAutoupdateDismissed,
+} from "../src/config.js";
+import {
 	checkAutoupdateDisabled,
 	disableAutoupdate,
 	runStartupChecks,
@@ -67,6 +74,9 @@ const mockedMkdirSync = vi.mocked(mkdirSync);
 const mockedDetectShell = vi.mocked(detectShell);
 const mockedIsHookInstalled = vi.mocked(isHookInstalled);
 const mockedInstallHook = vi.mocked(installHook);
+const mockedSelect = vi.mocked(clack.select);
+const mockedIsAutoupdateDismissed = vi.mocked(isAutoupdateDismissed);
+const mockedMarkAutoupdateDismissed = vi.mocked(markAutoupdateDismissed);
 
 // ── checkAutoupdateDisabled ───────────────────────────────────
 
@@ -159,6 +169,7 @@ describe("runStartupChecks", () => {
 		vi.clearAllMocks();
 		// Reset default implementations (clearAllMocks only resets call counts)
 		mockedIsCancel.mockReturnValue(false);
+		mockedIsAutoupdateDismissed.mockReturnValue(false);
 		Object.defineProperty(process.stdin, "isTTY", {
 			value: true,
 			configurable: true,
@@ -175,16 +186,54 @@ describe("runStartupChecks", () => {
 		expect(mockedConfirm).not.toHaveBeenCalled();
 	});
 
-	it("should prompt user when autoupdate is true; on yes call disableAutoupdate", async () => {
+	it("should prompt user when autoupdate is true; on 'disable' choice call disableAutoupdate", async () => {
 		mockedReadJsonc.mockReturnValue({ autoupdate: true });
 		mockedDetectShell.mockReturnValue({ type: "bash", configPath: "/home/user/.bashrc" });
 		mockedIsHookInstalled.mockReturnValue(true);
-		mockedConfirm.mockResolvedValue(true);
+		mockedSelect.mockResolvedValue("disable");
 
 		await runStartupChecks();
 
-		expect(mockedConfirm).toHaveBeenCalledTimes(1);
+		expect(mockedSelect).toHaveBeenCalledTimes(1);
 		expect(mockedWriteFileSync).toHaveBeenCalled();
+	});
+
+	it("should do nothing when user selects 'keep' for autoupdate", async () => {
+		mockedReadJsonc.mockReturnValue({ autoupdate: true });
+		mockedDetectShell.mockReturnValue({ type: "bash", configPath: "/home/user/.bashrc" });
+		mockedIsHookInstalled.mockReturnValue(true);
+		mockedSelect.mockResolvedValue("keep");
+
+		await runStartupChecks();
+
+		expect(mockedSelect).toHaveBeenCalledTimes(1);
+		expect(mockedWriteFileSync).not.toHaveBeenCalled();
+		expect(mockedMarkAutoupdateDismissed).not.toHaveBeenCalled();
+	});
+
+	it("should call markAutoupdateDismissed when user selects 'dismiss'", async () => {
+		mockedReadJsonc.mockReturnValue({ autoupdate: true });
+		mockedDetectShell.mockReturnValue({ type: "bash", configPath: "/home/user/.bashrc" });
+		mockedIsHookInstalled.mockReturnValue(true);
+		mockedSelect.mockResolvedValue("dismiss");
+
+		await runStartupChecks();
+
+		expect(mockedSelect).toHaveBeenCalledTimes(1);
+		expect(mockedMarkAutoupdateDismissed).toHaveBeenCalledTimes(1);
+		expect(mockedWriteFileSync).not.toHaveBeenCalled();
+	});
+
+	it("should skip autoupdate prompt when autoupdateDismissed is true", async () => {
+		mockedReadJsonc.mockReturnValue({ autoupdate: true });
+		mockedIsAutoupdateDismissed.mockReturnValue(true);
+		mockedDetectShell.mockReturnValue({ type: "bash", configPath: "/home/user/.bashrc" });
+		mockedIsHookInstalled.mockReturnValue(true);
+
+		await runStartupChecks();
+
+		expect(mockedSelect).not.toHaveBeenCalled();
+		expect(mockedConfirm).not.toHaveBeenCalled();
 	});
 
 	it("should prompt user when hook is missing; on yes call installHook", async () => {
@@ -220,11 +269,12 @@ describe("runStartupChecks", () => {
 		mockedReadJsonc.mockReturnValue({ autoupdate: true });
 		mockedDetectShell.mockReturnValue({ type: "bash", configPath: "/home/user/.bashrc" });
 		mockedIsHookInstalled.mockReturnValue(true);
-		mockedConfirm.mockResolvedValue(Symbol("cancel"));
+		mockedSelect.mockResolvedValue(Symbol("cancel"));
 		mockedIsCancel.mockReturnValue(true);
 
 		await expect(runStartupChecks()).resolves.toBeUndefined();
 		expect(mockedWriteFileSync).not.toHaveBeenCalled();
+		expect(mockedMarkAutoupdateDismissed).not.toHaveBeenCalled();
 	});
 
 	it("should skip gracefully when user cancels shell hook prompt", async () => {
@@ -242,11 +292,13 @@ describe("runStartupChecks", () => {
 		mockedReadJsonc.mockReturnValue({ autoupdate: true });
 		mockedDetectShell.mockReturnValue({ type: "bash", configPath: "/home/user/.bashrc" });
 		mockedIsHookInstalled.mockReturnValue(false);
+		mockedSelect.mockResolvedValue("disable");
 		mockedConfirm.mockResolvedValue(true);
 
 		await runStartupChecks();
 
-		expect(mockedConfirm).toHaveBeenCalledTimes(2);
+		expect(mockedSelect).toHaveBeenCalledTimes(1); // autoupdate select
+		expect(mockedConfirm).toHaveBeenCalledTimes(1); // shell hook confirm
 		expect(mockedWriteFileSync).toHaveBeenCalled();
 		expect(mockedInstallHook).toHaveBeenCalledTimes(1);
 	});
