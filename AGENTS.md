@@ -24,9 +24,8 @@ CLI tool that mitigates npm supply chain attacks by gating OpenCode updates behi
 │   ├── setup.ts        # Startup checks — autoupdate disable, shell hook install
 │   ├── debug.ts        # Debug logging to XDG cache
 │   └── types.ts        # UpdateInfo, DetailedUpdateInfo, VersionInfo
-├── test/               # Vitest tests (12 files, ~2865 lines)
+├── test/               # Vitest tests (11 files)
 ├── bin/
-│   ├── install.cjs     # Postinstall: disables autoupdate in opencode config
 │   └── generate-schema.cjs  # Generates update-guard.schema.json from config.ts
 ├── scripts/release.ts  # Interactive release: bump → tag → push (Bun)
 ├── update-guard.schema.json  # JSON Schema for user config (committed, in files[])
@@ -48,7 +47,7 @@ CLI tool that mitigates npm supply chain attacks by gating OpenCode updates behi
 | Package install | `src/cli/install.ts:56` | `installPackage`/`installUpdates`/`updatePluginVersionInConfig` |
 | Debug logging | `src/debug.ts` | `debugLog` — writes to `~/.cache/opencode/update-guard-debug.log` |
 | JSONC parser | `src/helpers.ts:87` | `parseJsonc` — hand-rolled, handles comments outside strings |
-| Postinstall | `bin/install.cjs` | Writes `autoupdate: false` to `$XDG_CONFIG_HOME/opencode/opencode.json` |
+| Postinstall | `src/setup.ts:44` | `disableAutoupdate()` — prompted by startup wizard, not automatic |
 
 ## CODE MAP
 
@@ -113,8 +112,7 @@ CLI tool that mitigates npm supply chain attacks by gating OpenCode updates behi
 
 ## CONVENTIONS
 
-- **ESM source, CJS install script**: `src/` is `"type": "module"`. `bin/*.cjs` is explicitly `.cjs` because postinstall and schema generation must work without ESM support.
-- **Duplicated parseJsonc**: Exists in both `src/helpers.ts` and `bin/install.cjs`. Intentional — they target different module systems and cannot share imports. Any fix must be applied in both.
+- **ESM source, CJS schema generator**: `src/` is `"type": "module"`. `bin/generate-schema.cjs` is explicitly `.cjs` because it must work without ESM support.
 - **cli.ts is barrel + monolith**: `src/cli.ts` contains CLI entry logic AND re-exports from `src/cli/` submodules. The re-exports exist so tests can import from `cli.ts` without reaching into submodules.
 - **Biome for linting/formatting**: Replaces ESLint + Prettier. Config in `biome.json` — tabs, double quotes, recommended rules, cognitive complexity limit 25. Only scans `src/**` and `bin/**` (not `test/`).
 - **Pre-commit hooks**: `simple-git-hooks` + `lint-staged` — biome fix → tsc → schema gen (on config.ts change) → vitest run.
@@ -131,7 +129,7 @@ CLI tool that mitigates npm supply chain attacks by gating OpenCode updates behi
 - **NEVER touch cooldown cache file** outside `src/cooldown.ts`
 - **NEVER use ESLint or Prettier** — project uses Biome exclusively
 - **NEVER use `npm` for local dev** — always use `bun` (`bun run`, `bun add`, `bun add -D`). npm is only for CI/publishing.
-- **NEVER update parseJsonc in only one location** — must sync `src/helpers.ts` and `bin/install.cjs`
+- **NEVER update parseJsonc without checking all usages** — `src/helpers.ts` is the canonical location
 - **NEVER reference `src/index.ts`** — it was removed in v0.4.0 (commit `b03c390`). The project is CLI-only now.
 
 ## COMMANDS
@@ -154,7 +152,7 @@ bun add <pkg>           # Add dependency
 
 ## NOTES
 
-- **Two entry points**: CLI binary (`src/cli.ts` → `dist/cli.js` as `opencode-update`), postinstall (`bin/install.cjs`). Each boots independently. Former plugin entry (`src/index.ts`) was removed in v0.4.0.
+- **Single entry point**: CLI binary (`src/cli.ts` → `dist/cli.js` as `opencode-update`). Former plugin entry (`src/index.ts`) removed in v0.4.0, former postinstall (`bin/install.cjs`) removed in v0.5.0.
 - **CLI modes**: `opencode-update` (interactive), `opencode-update --pre-launch` (shell wrapper), `opencode-update --all` (install all), `opencode-update --uninstall-hook`
 - **Configurable maturity**: users set `maturityDays` in `$XDG_CONFIG_HOME/opencode/update-guard.jsonc` (default: 3). Schema at `update-guard.schema.json`.
 - **Debug logging**: Set `"debug": true` in config → writes to `~/.cache/opencode/update-guard-debug.log`
@@ -163,7 +161,7 @@ bun add <pkg>           # Add dependency
 - **Release flow**: `bun run release` → picks bump → `npm version` → git push + tag → triggers `.github/workflows/release.yml` (lint → test → build → publish with provenance)
 - **No PR CI**: Only release workflow exists (triggered on `v*` tag push). Quality relies on pre-commit hooks.
 - **Schema regeneration**: `lint-staged` runs `bin/generate-schema.cjs` when `src/config.ts` changes. Exits 1 on mismatch, aborting the commit — developer must re-stage the updated schema and commit again.
-- **install.test.ts is unique**: Tests CJS postinstall by patching `CONFIG_DIR` and running as child process
+- **Autoupdate disabling**: Now handled by the startup wizard (`src/setup.ts`) on first run, not a postinstall script
 - MIT license in `package.json` only (no LICENSE file)
 - tsconfig excludes `test/` — Vitest handles test compilation via Vite
-- 12 test files, ~2865 lines — no vitest.config.ts, all convention defaults
+- 11 test files — no vitest.config.ts, all convention defaults

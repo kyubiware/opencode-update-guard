@@ -28,7 +28,7 @@ For each available update, it finds the **most recent version that is both newer
 
 Update Guard uses three layers to stop immature packages from being installed:
 
-1. **Disables auto-updates** — Sets `autoupdate: false` in OpenCode's config at install time. Prevents silent background updates.
+1. **Disables auto-updates** — On first run, prompts to set `autoupdate: false` in OpenCode's config. Prevents silent background updates.
 
 2. **Shell wrapper pre-launch check** — Every `opencode` invocation checks for mature updates first. No updates? Launches silently. Updates available? Shows the interactive selector.
 
@@ -44,10 +44,7 @@ Checks run **once per 24 hours** with a cooldown cache. The cooldown is immediat
 npm install -g opencode-update-guard
 ```
 
-The postinstall script automatically:
-- Disables OpenCode's built-in autoupdate (`"autoupdate": false`) so Update Guard becomes the sole update authority
-
-To re-enable auto-update, set `"autoupdate": true` in your opencode.json.
+On first run, `opencode-update` will guide you through setup, including disabling OpenCode's built-in autoupdate so Update Guard becomes the sole update authority.
 
 ## Updating packages
 
